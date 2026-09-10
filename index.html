@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="shortcut icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <link rel="alternate icon" href="/it-ops-logo.svg" />
+    <title>IT_OPS</title>
+    <meta name="description" content="Enterprise IT Helpdesk & Change Request Management System (IT_OPS) featuring service catalog, approval workflows, role-based controls, audit tracking, and reporting." />
+    <meta property="og:title" content="IT_OPS" />
+    <meta property="og:description" content="Enterprise IT Helpdesk & Change Request Management System (IT_OPS) featuring service catalog, approval workflows, role-based controls, audit tracking, and reporting." />
+    <style>
+      /* Pre-React Instant Loader Styles */
+      .it-ops-preloader-root {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: #f8fafc;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        color: #0f172a;
+        z-index: 99999;
+      }
+      .it-ops-loader-card {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 32px 40px;
+        background: #ffffff;
+        border-radius: 16px;
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.05), 0 8px 10px -6px rgba(15, 23, 42, 0.03);
+        max-width: 360px;
+        width: 90%;
+        text-align: center;
+      }
+      .it-ops-logo-badge {
+        width: 56px;
+        height: 56px;
+        border-radius: 14px;
+        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 20px;
+        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.15);
+      }
+      .it-ops-logo-badge svg {
+        width: 28px;
+        height: 28px;
+        color: #38bdf8;
+      }
+      .it-ops-title {
+        font-size: 18px;
+        font-weight: 700;
+        color: #0f172a;
+        letter-spacing: -0.02em;
+        margin: 0 0 6px 0;
+      }
+      .it-ops-subtitle {
+        font-size: 13px;
+        color: #64748b;
+        margin: 0 0 24px 0;
+        line-height: 1.4;
+      }
+      .it-ops-progress-track {
+        width: 100%;
+        height: 4px;
+        background: #e2e8f0;
+        border-radius: 999px;
+        overflow: hidden;
+        position: relative;
+        margin-bottom: 12px;
+      }
+      .it-ops-progress-bar {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: 45%;
+        background: linear-gradient(90deg, #2563eb, #38bdf8);
+        border-radius: 999px;
+        animation: itOpsIndeterminate 1.4s ease-in-out infinite;
+      }
+      .it-ops-status-text {
+        font-size: 12px;
+        font-weight: 500;
+        color: #94a3b8;
+      }
+      @keyframes itOpsIndeterminate {
+        0% {
+          left: -40%;
+          width: 40%;
+        }
+        50% {
+          left: 30%;
+          width: 50%;
+        }
+        100% {
+          left: 100%;
+          width: 40%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <div class="it-ops-preloader-root" id="app-preloader">
+        <div class="it-ops-loader-card">
+          <div class="it-ops-logo-badge" style="background: transparent; box-shadow: none;">
+            <img src="/it-ops-logo.svg" alt="IT OPS Logo" width="56" height="56" style="width: 56px; height: 56px; object-fit: contain;" />
+          </div>
+          <h1 class="it-ops-title">IT_OPS</h1>
+                <div class="it-ops-progress-track">
+            <div class="it-ops-progress-bar"></div>
+          </div>
+          <span class="it-ops-status-text">Loading Next Generation Application...</span>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

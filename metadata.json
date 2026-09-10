@@ -1,0 +1,6 @@
+{
+  "name": "IT_OPS",
+  "description": "Enterprise IT Helpdesk & Change Request Management System (IT_OPS) featuring service catalog, approval workflows, role-based controls, audit tracking, and reporting.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,141 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Clip path to keep operator inside the inner circular window -->
+    <clipPath id="inner-circle-clip">
+      <circle cx="256" cy="205" r="92" />
+    </clipPath>
+  </defs>
+
+  <!-- Outer Gear Body (Light Blue Fill, Dark Blue Stroke) -->
+  <path
+    d="M 219.16 84.51 L 224.71 44.01 A 164 164 0 0 1 287.29 44.01 L 292.84 84.51 A 126 126 0 0 1 315.15 93.75 L 347.71 69.04 A 164 164 0 0 1 391.96 113.29 L 367.25 145.85 A 126 126 0 0 1 376.49 168.16 L 416.99 173.71 A 164 164 0 0 1 416.99 236.29 L 376.49 241.84 A 126 126 0 0 1 367.25 264.15 L 391.96 296.71 A 164 164 0 0 1 347.71 340.96 L 315.15 316.25 A 126 126 0 0 1 292.84 325.49 L 287.29 365.99 A 164 164 0 0 1 224.71 365.99 L 219.16 325.49 A 126 126 0 0 1 196.85 316.25 L 164.29 340.96 A 164 164 0 0 1 120.04 296.71 L 144.75 264.15 A 126 126 0 0 1 135.51 241.84 L 95.01 236.29 A 164 164 0 0 1 95.01 173.71 L 135.51 168.16 A 126 126 0 0 1 144.75 145.85 L 120.04 113.29 A 164 164 0 0 1 164.29 69.04 L 196.85 93.75 A 126 126 0 0 1 219.16 84.51 Z"
+    fill="#88bdfa"
+    stroke="#1e78d6"
+    stroke-width="18"
+    stroke-linejoin="round"
+    stroke-linecap="round"
+  />
+
+  <!-- White Circular Opening inside Gear -->
+  <circle
+    cx="256"
+    cy="205"
+    r="92"
+    fill="#FFFFFF"
+    stroke="#1e78d6"
+    stroke-width="18"
+  />
+
+  <!-- Operator Group (Clipped to Inner Window for crisp layout) -->
+  <g clip-path="url(#inner-circle-clip)">
+    <!-- Operator Head -->
+    <circle
+      cx="256"
+      cy="166"
+      r="33"
+      fill="#88bdfa"
+      stroke="#1e78d6"
+      stroke-width="16"
+    />
+
+    <!-- Operator Torso / Shoulders -->
+    <path
+      d="M 186 270 C 188 232 216 218 256 218 C 284 218 308 226 318 244 L 274 244 C 256 244 246 254 246 274 L 246 320 L 186 320 Z"
+      fill="#88bdfa"
+      stroke="#1e78d6"
+      stroke-width="16"
+      stroke-linejoin="round"
+      stroke-linecap="round"
+    />
+
+    <!-- Left Arm Silhouette -->
+    <path
+      d="M 186 270 L 186 315 L 246 315"
+      fill="#88bdfa"
+      stroke="#1e78d6"
+      stroke-width="16"
+      stroke-linejoin="round"
+      stroke-linecap="round"
+    />
+
+    <!-- Laptop Display (Tilted open screen) -->
+    <polygon
+      points="286,252 358,252 332,324 266,324"
+      fill="#88bdfa"
+      stroke="#1e78d6"
+      stroke-width="16"
+      stroke-linejoin="round"
+      stroke-linecap="round"
+    />
+
+    <!-- Laptop Bottom Base -->
+    <path
+      d="M 252 322 L 344 322"
+      stroke="#1e78d6"
+      stroke-width="16"
+      stroke-linecap="round"
+    />
+  </g>
+
+  <!-- Network Circuit Lines below Gear -->
+  <!-- Vertical Trunk from bottom of gear down to the bus -->
+  <line
+    x1="256"
+    y1="344"
+    x2="256"
+    y2="422"
+    stroke="#1e78d6"
+    stroke-width="18"
+    stroke-linecap="round"
+  />
+
+  <!-- Horizontal Bus with rounded 90-degree corners -->
+  <path
+    d="M 134 442 L 134 422 Q 134 422 144 422 L 368 422 Q 378 422 378 422 L 378 442"
+    fill="none"
+    stroke="#1e78d6"
+    stroke-width="18"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+
+  <!-- Center Node Stem -->
+  <line
+    x1="256"
+    y1="422"
+    x2="256"
+    y2="442"
+    stroke="#1e78d6"
+    stroke-width="18"
+  />
+
+  <!-- Left Network Node Terminal -->
+  <circle
+    cx="134"
+    cy="462"
+    r="20"
+    fill="#FFFFFF"
+    stroke="#1e78d6"
+    stroke-width="18"
+  />
+
+  <!-- Center Network Node Terminal -->
+  <circle
+    cx="256"
+    cy="462"
+    r="20"
+    fill="#FFFFFF"
+    stroke="#1e78d6"
+    stroke-width="18"
+  />
+
+  <!-- Right Network Node Terminal -->
+  <circle
+    cx="378"
+    cy="462"
+    r="20"
+    fill="#FFFFFF"
+    stroke="#1e78d6"
+    stroke-width="18"
+  />
+</svg>

@@ -1,0 +1,103 @@
+@import "tailwindcss";
+
+:root {
+  --primary: #0f172a;
+  --accent: #2563eb;
+  --bg: #f8fafc;
+  --sidebar: #1e293b;
+  --text-muted: #64748b;
+  --border: #e2e8f0;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: var(--bg);
+  color: var(--primary);
+}
+
+.badge-critical {
+  background-color: #fee2e2;
+  color: #991b1b;
+}
+
+.badge-high {
+  background-color: #ffedd5;
+  color: #9a3412;
+}
+
+.badge-medium {
+  background-color: #fef9c3;
+  color: #854d0e;
+}
+
+.badge-low {
+  background-color: #f1f5f9;
+  color: #475569;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 9999px;
+  background-color: #f1f5f9;
+  font-size: 12px;
+  font-weight: 500;
+  color: #334155;
+  border: 1px solid #e2e8f0;
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #94a3b8;
+}
+
+.dot-blue {
+  background-color: #2563eb;
+}
+
+.dot-orange {
+  background-color: #f97316;
+}
+
+.dot-green {
+  background-color: #22c55e;
+}
+
+.dot-red {
+  background-color: #ef4444;
+}
+
+.dot-amber {
+  background-color: #f59e0b;
+}
+
+.dot-purple {
+  background-color: #a855f7;
+}
+
+.stat-card {
+  background-color: #ffffff;
+  padding: 20px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.stat-label {
+  font-size: 12px;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+
+.stat-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: #0f172a;
+  margin-top: 4px;
+}

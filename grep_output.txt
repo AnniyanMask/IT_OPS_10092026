@@ -1,0 +1,19 @@
+5409:      releases = memoryReleaseNotes
+5452:      unreadCount = memoryReleaseNotes.filter(
+5566:    memoryReleaseNotes.unshift(newRelease);
+5640:    const memIdx = memoryReleaseNotes.findIndex(r => r.id === id);
+5644:      currentPublishedAt = memoryReleaseNotes[memIdx].publishedAt;
+5658:      memoryReleaseNotes[memIdx] = {
+5659:        ...memoryReleaseNotes[memIdx],
+5664:        status: status || memoryReleaseNotes[memIdx].status,
+5667:        updatedByName: actorName || memoryReleaseNotes[memIdx].updatedByName,
+5709:      data: memIdx !== -1 ? memoryReleaseNotes[memIdx] : { id, version, title },
+5733:    const memIdx = memoryReleaseNotes.findIndex(r => r.id === id);
+5737:      publishedAt = (memIdx !== -1 && memoryReleaseNotes[memIdx].publishedAt) ? memoryReleaseNotes[memIdx].publishedAt : nowIso;
+5741:      memoryReleaseNotes[memIdx].status = status;
+5742:      memoryReleaseNotes[memIdx].publishedAt = publishedAt;
+5743:      memoryReleaseNotes[memIdx].updatedBy = actorUserId || 'USR-ADMIN';
+5744:      memoryReleaseNotes[memIdx].updatedByName = actorName || 'System Administrator';
+5745:      memoryReleaseNotes[memIdx].updatedAt = nowIso;
+5785:    const memIdx = memoryReleaseNotes.findIndex(r => r.id === id);
+5787:      memoryReleaseNotes.splice(memIdx, 1);
