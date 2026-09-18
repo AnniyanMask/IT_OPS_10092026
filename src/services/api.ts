@@ -1047,4 +1047,36 @@ export const api = {
       return { success: false, data: [], error: err instanceof Error ? err.message : String(err) };
     }
   },
+
+  // 10. Management & Analytics Dashboard
+  async getManagementStats(): Promise<{ 
+    success: boolean; 
+    data?: {
+      staffMatrix: any[];
+      slaAudit: any[];
+      delegationAudit: any[];
+      kpis: { totalCr: number; activeCr: number; avgTurnaroundHours: number };
+    }; 
+    message?: string 
+  }> {
+    try {
+      const res = await fetch(`${API_BASE}/management/stats`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      return { success: true, data };
+    } catch (err) {
+      return { success: false, message: String(err) };
+    }
+  },
+
+  async getStaffWorkloadPoints(): Promise<{ success: boolean; data?: any[]; message?: string }> {
+    try {
+      const res = await fetch(`${API_BASE}/management/workload-points`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      return { success: true, data };
+    } catch (err) {
+      return { success: false, message: String(err) };
+    }
+  },
 };

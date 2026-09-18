@@ -447,7 +447,17 @@ $$ LANGUAGE plpgsql;
 -- through the application/administration workflow or explicitly by the DBA.
 --
 -- ------------------------------------------------------------------------------
--- 9. ENTERPRISE STORAGE VAULT CONFIGURATION TABLE (IT & Admin Managed)
+-- 9. SYSTEM CONFIGURATIONS & GLOBAL SETTINGS
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS system_configurations (
+    id SERIAL PRIMARY KEY,
+    key_name VARCHAR(100) UNIQUE NOT NULL,
+    key_value JSONB NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ------------------------------------------------------------------------------
+-- 10. ENTERPRISE STORAGE VAULT CONFIGURATION TABLE (IT & Admin Managed)
 -- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS storage_vault_configs (
     id VARCHAR(50) PRIMARY KEY,
@@ -2341,7 +2351,8 @@ CREATE TABLE IF NOT EXISTS maintenance_reminders (
     recipient_count INTEGER DEFAULT 0,
     template_used VARCHAR(150),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_maint_reminder UNIQUE (maintenance_id, reminder_type)
 );
 
 CREATE INDEX IF NOT EXISTS idx_maint_rem_id ON maintenance_reminders(maintenance_id);
@@ -2402,54 +2413,6 @@ CREATE TABLE IF NOT EXISTS release_note_reads (
     read_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (release_id, user_id)
 );
-
--- ------------------------------------------------------------------------------
--- 25. SEED DATA: LABEL TEMPLATES & ELEMENTS (SATO CL4NX Standard)
--- ------------------------------------------------------------------------------
-INSERT INTO label_templates (id, name, width_mm, height_mm, orientation, is_active, created_by)
-VALUES 
-('tpl-sato-cl4nx-std', 'SATO CL4NX - Standard 100x50mm Asset Label', 100.00, 50.00, 'Landscape', TRUE, 'USR-IT-ADMIN'),
-('tpl-sato-cl4nx-small', 'SATO CL4NX - Small 50x25mm Component Label', 50.00, 25.00, 'Landscape', TRUE, 'USR-IT-ADMIN')
-ON CONFLICT (id) DO NOTHING;
-
-INSERT INTO label_template_elements (id, template_id, element_type, field_key, x_mm, y_mm, width_mm, height_mm, font_size, font_weight)
-VALUES
-('el-std-title', 'tpl-sato-cl4nx-std', 'text', 'Tanaka Precision (M) Sdn Bhd', 5, 5, 90, 8, 14, 'bold'),
-('el-std-asset-id', 'tpl-sato-cl4nx-std', 'text', 'Asset ID: {{assetId}}', 5, 15, 60, 6, 12, 'bold'),
-('el-std-asset-name', 'tpl-sato-cl4nx-std', 'text', 'Name: {{assetName}}', 5, 23, 60, 6, 11, 'normal'),
-('el-std-barcode', 'tpl-sato-cl4nx-std', 'barcode', '{{assetId}}', 70, 15, 25, 25, 0, 'normal'),
-('el-std-footer', 'tpl-sato-cl4nx-std', 'text', 'IT OPS / FIXED ASSET CONTROL', 5, 42, 90, 5, 9, 'normal')
-ON CONFLICT (id) DO NOTHING;
-
--- ------------------------------------------------------------------------------
--- 26. SEED DATA: INITIAL SYSTEM ROLES
--- ------------------------------------------------------------------------------
-INSERT INTO custom_roles (id, role_name, archetype, description, is_system_role, permissions, workflow_routing, email_subscriptions)
-VALUES
-(
-  'role-requester',
-  'Requester',
-  'Requester',
-  'Standard organizational end-user with access to submit IT change requests and track tickets.',
-  TRUE,
-  '{"canViewMyRequests": true, "canViewHodQueue": false, "canViewItAdminWorkspace": false, "canViewDeveloperBoard": false, "canViewClosedCases": false, "canViewReports": false, "canViewAdminHub": false, "canViewEmailHub": false, "canApproveHodStage": false, "canTriageAndAssignDevs": false, "canReturnToRequester": false, "canDirectModifyCatalog": false, "canVerifyRelease": false, "canReopenCases": false, "canManageUsers": false}'::jsonb,
-  '{"receivesHodReview": false, "receivesItAdminReview": false, "canBeAssignedAsDeveloper": false, "receivesCriticalEscalations": false}'::jsonb,
-  '{"notifyNewSubmissions": true, "notifyClarificationReplies": true, "notifyStatusTransitions": true, "notifyReleaseVerifications": true, "notifyUserRegistrations": false, "notifyDelegations": false}'::jsonb
-),
-(
-  'role-system-admin',
-  'System Admin',
-  'System Admin',
-  'Full super administrator with complete control over the application.',
-  TRUE,
-  '{"canViewMyRequests": true, "canViewHodQueue": true, "canViewItAdminWorkspace": true, "canViewDeveloperBoard": true, "canViewClosedCases": true, "canViewReports": true, "canViewAdminHub": true, "canViewEmailHub": true, "canApproveHodStage": true, "canTriageAndAssignDevs": true, "canReturnToRequester": true, "canDirectModifyCatalog": true, "canVerifyRelease": true, "canReopenCases": true, "canManageUsers": true}'::jsonb,
-  '{"receivesHodReview": true, "receivesItAdminReview": true, "canBeAssignedAsDeveloper": true, "receivesCriticalEscalations": true}'::jsonb,
-  '{"notifyNewSubmissions": true, "notifyClarificationReplies": true, "notifyStatusTransitions": true, "notifyReleaseVerifications": true, "notifyUserRegistrations": true, "notifyDelegations": true}'::jsonb
-)
-ON CONFLICT (id) DO UPDATE SET 
-  role_name = EXCLUDED.role_name,
-  description = EXCLUDED.description,
-  permissions = EXCLUDED.permissions;
 
 
 

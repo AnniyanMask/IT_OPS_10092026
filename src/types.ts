@@ -543,7 +543,7 @@ export interface SystemTurnaroundMetrics {
 
 export type DeviceOutAssetType = 'Laptop' | 'Thumbdrive' | 'External Hard Disk' | 'Application Asset';
 
-export type DeviceOutApprovalStatus = 'Pending' | 'Approved' | 'Rejected' | 'Returned/Closed';
+export type DeviceOutApprovalStatus = 'Pending' | 'Approved' | 'Rejected' | 'Returned/Closed' | RequestStatus;
 
 export type VpnRequirement = 'Required' | 'Not Required';
 
@@ -597,7 +597,9 @@ export interface LabelTemplateElement {
   id: string;
   templateId: string;
   elementType: 'text' | 'badge' | 'barcode' | 'qr' | 'line';
+  fieldType: 'dynamic' | 'static';
   fieldKey: string; // 'status_approved' | 'requester_name' | 'asset_name' | 'asset_serial_no' | 'from_date' | 'to_date' | 'approver_name' | 'request_number' | 'custom'
+  staticText?: string;
   xMm: number;
   yMm: number;
   widthMm: number;

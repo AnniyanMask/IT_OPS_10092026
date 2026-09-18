@@ -36,32 +36,6 @@ let isDbConnected = false;
 let lastDbError: string | null = null;
 let lastDbCheckedAt: string | null = null;
 
-// In-Memory Fallbacks for UI functionality when Database is unavailable
-const memoryCatalog: {
-  categories: any[];
-  services: any[];
-  applications: any[];
-  issueTypes: any[];
-  modules: any[];
-  subFunctions: any[];
-  processes: any[];
-} = {
-  categories: [],
-  services: [],
-  applications: [],
-  issueTypes: [],
-  modules: [],
-  subFunctions: [],
-  processes: [],
-};
-const memoryDeviceOutRequests: any[] = [];
-const memoryDeviceOutApprovals: any[] = [];
-const memoryLabelTemplates: any[] = [];
-const memoryLabelPrintHistory: any[] = [];
-const memoryReleaseNotes: any[] = [];
-const memoryReleaseReads: any[] = [];
-let deviceOutCounter = 100;
-
 function getMalaysianTimestamp(date: Date | string | number = new Date(), includeSeconds: boolean = true): string {
   const d = typeof date === 'string' || typeof date === 'number' ? new Date(date) : date;
   if (isNaN(d.getTime())) return String(date || '');
@@ -242,14 +216,12 @@ async function ensureDatabaseSchema(pool: Pool): Promise<void> {
           is_auto_closed_inactive BOOLEAN DEFAULT FALSE,
           withdrawn_at TIMESTAMP WITH TIME ZONE,
           withdrawn_reason TEXT,
-          -- Workload Scoring (Critical=4, High=3, Medium=2, Low=1)
+          -- Workload Scoring (Critical=10, High=6, others=3)
           workload_points INTEGER GENERATED ALWAYS AS (
               CASE priority
-                  WHEN 'Critical' THEN 4
-                  WHEN 'High' THEN 3
-                  WHEN 'Medium' THEN 2
-                  WHEN 'Low' THEN 1
-                  ELSE 1
+                  WHEN 'Critical' THEN 10
+                  WHEN 'High' THEN 6
+                  ELSE 3
               END
           ) STORED,
           created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -585,7 +557,7 @@ async function ensureDatabaseSchema(pool: Pool): Promise<void> {
               v_cr.requester_email,
               v_cr.requester_name,
               '[IT DIRECT ACTION] ' || p_change_request_id || ': Priority & Classification Updated by IT Operations',
-              '<p>Dear ' || v_cr.requester_name || ',</p><p>IT Operations (' || p_actor_name || ') has directly updated your change request <strong>' || p_change_request_id || '</strong>:</p><ul>' ||
+              '<p>Dear ' || v_cr.requester_name || ',</p><p><strong>' || p_actor_name || '</strong> has directly updated your change request <strong>' || p_change_request_id || '</strong>:</p><ul>' ||
               '<li><strong>Priority:</strong> ' || v_cr.priority || ' &rarr; ' || COALESCE(p_new_priority, v_cr.priority) || '</li>' ||
               CASE WHEN v_priority_changed THEN '<li><strong>Reason for Priority Change:</strong> ' || p_priority_change_reason || '</li>' ELSE '' END ||
               '<li><strong>Classification:</strong> ' || COALESCE(p_new_category_name, v_cr.category_name, 'General') || ' &rarr; ' || COALESCE(p_new_service_name, v_cr.service_name, 'N/A') || '</li>' ||
@@ -675,6 +647,22 @@ async function ensureDatabaseSchema(pool: Pool): Promise<void> {
         ALTER TABLE change_requests ADD COLUMN IF NOT EXISTS is_auto_closed_inactive BOOLEAN DEFAULT FALSE;
         ALTER TABLE change_requests ADD COLUMN IF NOT EXISTS withdrawn_at TIMESTAMP WITH TIME ZONE;
         ALTER TABLE change_requests ADD COLUMN IF NOT EXISTS withdrawn_reason TEXT;
+
+        -- Update workload points system migration
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'change_requests' AND column_name = 'workload_points'
+        ) THEN
+          -- Drop and recreate the generated column to apply new scoring (10/6/3)
+          ALTER TABLE change_requests DROP COLUMN workload_points;
+          ALTER TABLE change_requests ADD COLUMN workload_points INTEGER GENERATED ALWAYS AS (
+              CASE priority
+                  WHEN 'Critical' THEN 10
+                  WHEN 'High' THEN 6
+                  ELSE 3
+              END
+          ) STORED;
+        END IF;
       END $$;
 
       CREATE TABLE IF NOT EXISTS temporary_approver_delegations (
@@ -978,7 +966,9 @@ async function ensureDatabaseSchema(pool: Pool): Promise<void> {
         id VARCHAR(50) PRIMARY KEY,
         template_id VARCHAR(50) NOT NULL REFERENCES label_templates(id) ON DELETE CASCADE,
         element_type VARCHAR(50) NOT NULL DEFAULT 'text',
-        field_key VARCHAR(100) NOT NULL,
+        field_type VARCHAR(50) NOT NULL DEFAULT 'dynamic',
+        field_key VARCHAR(100),
+        static_text TEXT,
         x_mm NUMERIC(10,2) NOT NULL DEFAULT 0,
         y_mm NUMERIC(10,2) NOT NULL DEFAULT 0,
         width_mm NUMERIC(10,2) NOT NULL DEFAULT 40,
@@ -1082,6 +1072,16 @@ async function ensureDatabaseSchema(pool: Pool): Promise<void> {
       ON CONFLICT (id) DO NOTHING;
 
       -- ==========================================
+      -- SYSTEM CONFIGURATIONS & GLOBAL SETTINGS
+      -- ==========================================
+      CREATE TABLE IF NOT EXISTS system_configurations (
+        id SERIAL PRIMARY KEY,
+        key_name VARCHAR(100) UNIQUE NOT NULL,
+        key_value JSONB NOT NULL,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- ==========================================
       -- MAINTENANCE ANNOUNCEMENTS & EMAIL REMINDERS
       -- ==========================================
       CREATE TABLE IF NOT EXISTS maintenance_announcements (
@@ -1127,6 +1127,15 @@ async function ensureDatabaseSchema(pool: Pool): Promise<void> {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         CONSTRAINT uq_maint_reminder UNIQUE (maintenance_id, reminder_type)
       );
+      
+      -- Ensure the unique constraint exists if the table was created without it previously
+      DO $$ 
+      BEGIN 
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_maint_reminder') THEN 
+          ALTER TABLE maintenance_reminders ADD CONSTRAINT uq_maint_reminder UNIQUE (maintenance_id, reminder_type); 
+        END IF; 
+      END $$;
+
       CREATE INDEX IF NOT EXISTS idx_maint_reminders_status_time ON maintenance_reminders(status, scheduled_time);
 
       CREATE TABLE IF NOT EXISTS maintenance_email_history (
@@ -1751,12 +1760,12 @@ app.post('/api/auth/login', async (req, res) => {
         return res.status(401).json({ success: false, message: 'Incorrect password.' });
       }
     } else {
-      return res.status(404).json({ success: false, message: 'No account found for this email address.' });
+      return res.status(401).json({ success: false, message: 'Invalid credentials.' });
     }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.warn('[DB Login Fallback Notice]', msg);
-    res.json({ success: false, message: msg, fallback: true });
+    console.error('[DB Login Error]', msg);
+    res.status(500).json({ success: false, message: 'An internal server error occurred.' });
   }
 });
 
@@ -2340,15 +2349,32 @@ type VisibilityContext = { userId: string; role: string; departmentId?: string }
 function buildChangeRequestVisibility(ctx: VisibilityContext) {
   const { userId, role, departmentId = '' } = ctx;
   if (!userId || !role) throw new Error('Authenticated user context is required.');
-  const elevatedRoles = new Set(['IT Helpdesk', 'IT Admin', 'System Admin']);
-  if (elevatedRoles.has(role)) return { clause: '', params: [] as any[] };
-  if (role === 'Department HOD') {
+  
+  const roleLower = role.trim().toLowerCase();
+  const elevatedRoles = new Set(['it helpdesk', 'it admin', 'system admin']);
+  
+  // 1. Elevated Access: Sees everything
+  if (elevatedRoles.has(roleLower)) return { clause: '', params: [] as any[] };
+  
+  // 2. HOD Access: Sees everything in their department
+  if (roleLower === 'department hod' || roleLower === 'head of department (hod)' || roleLower === 'acting department hod') {
     if (!departmentId || Number.isNaN(Number(departmentId))) throw new Error('Department context is required.');
     return { clause: 'WHERE cr.department_id = $1', params: [Number(departmentId)] };
   }
-  if (role === 'Software Developer') {
+  
+  // 3. Developer/Specialist Access: Sees cases assigned specifically to them
+  const isDevLike = 
+    roleLower === 'software developer' || 
+    roleLower.includes('developer') || 
+    roleLower.includes('specialist') || 
+    roleLower.includes('engineer') ||
+    roleLower.includes('staff');
+
+  if (isDevLike) {
     return { clause: 'WHERE cr.it_assigned_developer_id = $1', params: [userId] };
   }
+  
+  // 4. Default Requester Access: Sees only their own submissions
   return { clause: 'WHERE cr.requester_id = $1', params: [userId] };
 }
 
@@ -4394,16 +4420,6 @@ app.delete('/api/catalog/:type/:id', async (req, res) => {
     processes: 'application_processes',
   };
 
-  const memKey: Record<string, keyof typeof memoryCatalog> = {
-    categories: 'categories',
-    services: 'services',
-    applications: 'applications',
-    issuetypes: 'issueTypes',
-    modules: 'modules',
-    subfunctions: 'subFunctions',
-    processes: 'processes',
-  };
-
   const tableName = tableMap[type];
   if (!tableName) {
     return res.status(400).json({ success: false, message: `Invalid catalog type: ${type}` });
@@ -4413,53 +4429,6 @@ app.delete('/api/catalog/:type/:id', async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-
-    // Capture the full descendant set before the DELETE. PostgreSQL performs the
-    // actual cascade through the FK constraints; this keeps the server cache in
-    // sync with the same records that PostgreSQL removes.
-    let descendantIds: Record<string, Set<string>> = {};
-    if (type === 'categories') {
-      const services = await client.query('SELECT id FROM service_catalog WHERE category_id = $1', [id]);
-      const serviceIds = services.rows.map((r: any) => r.id);
-      const apps = serviceIds.length
-        ? await client.query('SELECT id FROM application_assets WHERE service_id = ANY($1::varchar[])', [serviceIds])
-        : { rows: [] };
-      const appIds = apps.rows.map((r: any) => r.id);
-      const mods = appIds.length
-        ? await client.query('SELECT id FROM application_modules WHERE application_id = ANY($1::varchar[])', [appIds])
-        : { rows: [] };
-      const modIds = mods.rows.map((r: any) => r.id);
-      const sfs = modIds.length
-        ? await client.query('SELECT id FROM application_subfunctions WHERE module_id = ANY($1::varchar[])', [modIds])
-        : { rows: [] };
-      const sfIds = sfs.rows.map((r: any) => r.id);
-      descendantIds = {
-        categories: new Set([id]),
-        services: new Set(serviceIds),
-        applications: new Set(appIds),
-        modules: new Set(modIds),
-        subFunctions: new Set(sfIds),
-      };
-    } else if (type === 'services') {
-      const apps = await client.query('SELECT id FROM application_assets WHERE service_id = $1', [id]);
-      const appIds = apps.rows.map((r: any) => r.id);
-      const mods = appIds.length
-        ? await client.query('SELECT id FROM application_modules WHERE application_id = ANY($1::varchar[])', [appIds])
-        : { rows: [] };
-      const modIds = mods.rows.map((r: any) => r.id);
-      const sfs = modIds.length
-        ? await client.query('SELECT id FROM application_subfunctions WHERE module_id = ANY($1::varchar[])', [modIds])
-        : { rows: [] };
-      const sfIds = sfs.rows.map((r: any) => r.id);
-      descendantIds = {
-        services: new Set([id]),
-        applications: new Set(appIds),
-        modules: new Set(modIds),
-        subFunctions: new Set(sfIds),
-      };
-    } else {
-      descendantIds[memKey[type]] = new Set([id]);
-    }
 
     const result = await client.query(`DELETE FROM ${tableName} WHERE id = $1`, [id]);
     if (result.rowCount !== 1) {
@@ -4472,7 +4441,6 @@ app.delete('/api/catalog/:type/:id', async (req, res) => {
     return res.json({
       success: true,
       deleted: true,
-      cascaded: Object.fromEntries(Object.entries(descendantIds).map(([key, ids]) => [key, ids.size])),
       message: `Record ${id} removed from PostgreSQL.`,
     });
   } catch (err) {
@@ -4490,79 +4458,105 @@ app.delete('/api/catalog/:type/:id', async (req, res) => {
 // ============================================================================
 
 const IT_STAFF_ROLES = ['IT Helpdesk', 'IT Admin', 'System Admin', 'Software Developer'];
-const isUserItStaff = (role?: string) => Boolean(role && IT_STAFF_ROLES.includes(role));
+const isUserItStaff = (role?: string) => Boolean(role && IT_STAFF_ROLES.map(r => r.toLowerCase()).includes(role.toLowerCase()));
+
+/**
+ * Helper to extract Bring Device Out specifications from current_behavior_description text
+ */
+function parseDeviceDetails(text: string) {
+  if (!text) return { asset: 'Unknown', serial: 'N/A', fromDate: '', toDate: '', vpn: 'Not Required' };
+  
+  const assetMatch = text.match(/Asset:\s*(.*)/i);
+  const serialMatch = text.match(/Serial Number:\s*(.*)/i);
+  const durationMatch = text.match(/Duration:\s*(.*)/i);
+  const vpnMatch = text.match(/VPN:\s*(.*)/i);
+  
+  const asset = assetMatch ? assetMatch[1].trim() : 'Unknown';
+  const serial = serialMatch ? serialMatch[1].trim() : 'N/A';
+  const duration = durationMatch ? durationMatch[1].trim() : '';
+  const vpn = vpnMatch ? vpnMatch[1].trim() : 'Not Required';
+  
+  let fromDate = '';
+  let toDate = '';
+  if (duration && duration.includes(' to ')) {
+    const parts = duration.split(' to ');
+    fromDate = parts[0]?.trim() || '';
+    toDate = parts[1]?.trim() || '';
+  }
+  
+  return { asset, serial, fromDate, toDate, vpn };
+}
 
 // GET: All Device Out Requests (with role visibility)
 app.get('/api/device-out-requests', async (req, res) => {
   try {
     const { userId, role, departmentId } = req.query as { userId?: string; role?: string; departmentId?: string };
+    const pool = getPool();
 
-    let results: any[] = [];
+    let query = `
+      SELECT r.*,
+        (SELECT COUNT(*) FROM label_print_history p WHERE p.request_id = r.id) as print_count,
+        (SELECT MAX(printed_at) FROM label_print_history p WHERE p.request_id = r.id) as last_printed_at
+      FROM change_requests r
+      WHERE r.category_name = 'Bring Device Out'
+    `;
+    const params: any[] = [];
+    const normalizedRole = role?.toLowerCase();
 
-    // Attempt PostgreSQL query
-    if (isDbConnected && dbPool) {
-      try {
-        let query = `
-          SELECT r.*,
-            (SELECT COUNT(*) FROM label_print_history p WHERE p.request_id = r.id) as print_count,
-            (SELECT MAX(printed_at) FROM label_print_history p WHERE p.request_id = r.id) as last_printed_at
-          FROM device_out_requests r
-        `;
-        const params: any[] = [];
-
-        // Role-based visibility
-        if (role === 'Requester' && userId) {
-          query += ` WHERE r.requester_id = $1`;
-          params.push(userId);
-        } else if (role === 'Department HOD' && departmentId) {
-          query += ` WHERE r.department_id = $1 OR r.requester_id = $2`;
-          params.push(parseInt(departmentId, 10), userId || '');
-        }
-
-        query += ` ORDER BY r.created_at DESC`;
-        const dbRes = await dbPool.query(query, params);
-        results = dbRes.rows.map(row => ({
-          id: row.id,
-          requestId: row.request_id || row.id,
-          requesterId: row.requester_id,
-          requesterName: row.requester_name,
-          requesterEmail: row.requester_email,
-          departmentId: row.department_id,
-          departmentName: row.department_name,
-          assetType: row.asset_type,
-          assetId: row.asset_id,
-          assetName: row.asset_name,
-          assetSerialNo: row.asset_serial_no,
-          fromDate: row.from_date,
-          toDate: row.to_date,
-          vpnRequired: row.vpn_required,
-          businessPurpose: row.business_purpose,
-          approvalRequired: Boolean(row.approval_required),
-          approvalStatus: row.approval_status,
-          approvedBy: row.approved_by,
-          approvedByName: row.approved_by_name,
-          approvedAt: row.approved_at ? new Date(row.approved_at).toISOString() : null,
-          rejectionReason: row.rejection_reason,
-          returnedAt: row.returned_at ? new Date(row.returned_at).toISOString() : null,
-          returnedBy: row.returned_by,
-          returnedByName: row.returned_by_name,
-          returnRemarks: row.return_remarks,
-          createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
-          updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
-          printCount: parseInt(row.print_count || '0', 10),
-          lastPrintedAt: row.last_printed_at ? new Date(row.last_printed_at).toISOString() : null,
-        }));
-      } catch (dbErr) {
-        console.error('[DB Error: /api/device-out-requests]', dbErr instanceof Error ? dbErr.message : String(dbErr));
-        return res.status(500).json({ success: false, error: 'Database connection failed' });
-      }
-    } else {
-      return res.status(503).json({ success: false, error: 'Database unavailable' });
+    // Role-based visibility
+    if (normalizedRole === 'requester' && userId) {
+      query += ` AND r.requester_id = $${params.length + 1}`;
+      params.push(userId);
+    } else if (normalizedRole === 'department hod' && departmentId) {
+      // HOD sees their own requests and requests from their department
+      query += ` AND r.department_id = $${params.length + 1}`;
+      params.push(parseInt(departmentId, 10));
+    } else if (normalizedRole === 'it staff' || normalizedRole === 'it admin' || normalizedRole === 'system admin') {
+      // IT sees all requests - no additional filter
+    } else if (userId) {
+      // Default fallback for any other logged in user who might have a userId
+      query += ` AND r.requester_id = $${params.length + 1}`;
+      params.push(userId);
     }
+
+    query += ` ORDER BY r.created_at DESC`;
+    const dbRes = await pool.query(query, params);
+    
+    const results = dbRes.rows.map(row => {
+      const details = parseDeviceDetails(row.current_behavior_description || '');
+      
+      return {
+        id: row.id,
+        requestId: row.id,
+        requesterId: row.requester_id,
+        requesterName: row.requester_name,
+        requesterEmail: row.requester_email,
+        departmentId: row.department_id,
+        departmentName: row.department_name,
+        serviceName: row.service_name || details.asset,
+        assetType: row.service_name || details.asset,
+        assetId: row.application_asset_id,
+        assetName: details.asset,
+        assetSerialNo: details.serial,
+        fromDate: details.fromDate,
+        toDate: details.toDate || row.requested_completion_date,
+        vpnRequired: details.vpn,
+        businessPurpose: row.business_justification || row.requested_change_description,
+        approvalRequired: true,
+        status: row.status, 
+        approvalStatus: row.status,
+        approvedByName: row.hod_approved_by,
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
+        printCount: parseInt(row.print_count || '0', 10),
+        lastPrintedAt: row.last_printed_at ? new Date(row.last_printed_at).toISOString() : null,
+      };
+    });
 
     return res.json({ success: true, count: results.length, data: results });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    console.error('[DB Error: /api/device-out-requests]', msg);
     return res.status(500).json({ success: false, error: msg });
   }
 });
@@ -4571,80 +4565,70 @@ app.get('/api/device-out-requests', async (req, res) => {
 app.get('/api/device-out-requests/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    let found: any = null;
-    let approvals: any[] = [];
-    let printHistory: any[] = [];
-
-    if (isDbConnected && dbPool) {
-      try {
-        const dbRes = await dbPool.query('SELECT * FROM device_out_requests WHERE id = $1 OR request_id = $1', [id]);
-        if (dbRes.rows.length > 0) {
-          const row = dbRes.rows[0];
-          found = {
-            id: row.id,
-            requestId: row.request_id || row.id,
-            requesterId: row.requester_id,
-            requesterName: row.requester_name,
-            requesterEmail: row.requester_email,
-            departmentId: row.department_id,
-            departmentName: row.department_name,
-            assetType: row.asset_type,
-            assetId: row.asset_id,
-            assetName: row.asset_name,
-            assetSerialNo: row.asset_serial_no,
-            fromDate: row.from_date,
-            toDate: row.to_date,
-            vpnRequired: row.vpn_required,
-            businessPurpose: row.business_purpose,
-            approvalRequired: Boolean(row.approval_required),
-            approvalStatus: row.approval_status,
-            approvedBy: row.approved_by,
-            approvedByName: row.approved_by_name,
-            approvedAt: row.approved_at ? new Date(row.approved_at).toISOString() : null,
-            rejectionReason: row.rejection_reason,
-            returnedAt: row.returned_at ? new Date(row.returned_at).toISOString() : null,
-            returnedBy: row.returned_by,
-            returnedByName: row.returned_by_name,
-            returnRemarks: row.return_remarks,
-            createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
-            updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
-          };
-
-          const appRes = await dbPool.query('SELECT * FROM device_out_approvals WHERE request_id = $1 ORDER BY created_at ASC', [id]);
-          approvals = appRes.rows.map(a => ({
-            id: a.id,
-            requestId: a.request_id,
-            approverId: a.approver_id,
-            approverName: a.approver_name,
-            approverRole: a.approver_role,
-            action: a.action,
-            comments: a.comments,
-            createdAt: a.created_at ? new Date(a.created_at).toISOString() : new Date().toISOString(),
-          }));
-
-          const prRes = await dbPool.query('SELECT * FROM label_print_history WHERE request_id = $1 ORDER BY printed_at DESC', [id]);
-          printHistory = prRes.rows.map(p => ({
-            id: p.id,
-            requestId: p.request_id,
-            templateId: p.template_id,
-            printedBy: p.printed_by,
-            printedByName: p.printed_by_name,
-            printerName: p.printer_name,
-            printCount: p.print_count,
-            printedAt: p.printed_at ? new Date(p.printed_at).toISOString() : new Date().toISOString(),
-          }));
-        }
-      } catch (dbErr) {
-        console.error('[DB Error: /api/device-out-requests/:id]', dbErr instanceof Error ? dbErr.message : String(dbErr));
-        return res.status(500).json({ success: false, error: 'Database error' });
-      }
-    } else {
-      return res.status(503).json({ success: false, error: 'Database unavailable' });
-    }
-
-    if (!found) {
+    const pool = getPool();
+    
+    // Fetch from change_requests
+    const dbRes = await pool.query('SELECT * FROM change_requests WHERE id = $1', [id]);
+    
+    if (dbRes.rows.length === 0) {
       return res.status(404).json({ success: false, error: `Device out request ${id} not found.` });
     }
+
+    const row = dbRes.rows[0];
+    const details = parseDeviceDetails(row.current_behavior_description || '');
+    
+    const found = {
+      id: row.id,
+      requestId: row.id,
+      requesterId: row.requester_id,
+      requesterName: row.requester_name,
+      requesterEmail: row.requester_email,
+      departmentId: row.department_id,
+      departmentName: row.department_name,
+      serviceName: row.service_name || details.asset,
+      assetType: row.service_name || details.asset,
+      assetId: row.application_asset_id,
+      assetName: details.asset,
+      assetSerialNo: details.serial,
+      fromDate: details.fromDate,
+      toDate: details.toDate || row.requested_completion_date,
+      vpnRequired: details.vpn,
+      businessPurpose: row.business_justification || row.requested_change_description,
+      approvalRequired: true,
+      status: row.status, 
+      approvalStatus: row.status,
+      approvedBy: row.hod_approved_by,
+      approvedByName: row.hod_approved_by,
+      approvedAt: row.hod_approved_at ? new Date(row.hod_approved_at).toISOString() : null,
+      rejectionReason: row.rejection_reason,
+      createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+      updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
+    };
+
+    // Fetch approvals from change_request_approval_history
+    const appRes = await pool.query('SELECT * FROM change_request_approval_history WHERE change_request_id = $1 ORDER BY action_date ASC', [id]);
+    const approvals = appRes.rows.map(a => ({
+      id: a.id,
+      requestId: a.change_request_id,
+      approverId: a.actor_user_id,
+      approverName: a.actor_name,
+      approverRole: a.actor_role,
+      action: a.decision,
+      comments: a.comments,
+      createdAt: a.action_date ? new Date(a.action_date).toISOString() : new Date().toISOString(),
+    }));
+
+    const prRes = await pool.query('SELECT * FROM label_print_history WHERE request_id = $1 ORDER BY printed_at DESC', [id]);
+    const printHistory = prRes.rows.map(p => ({
+      id: p.id,
+      requestId: p.request_id,
+      templateId: p.template_id,
+      printedBy: p.printed_by,
+      printedByName: p.printed_by_name,
+      printerName: p.printer_name,
+      printCount: p.print_count,
+      printedAt: p.printed_at ? new Date(p.printed_at).toISOString() : new Date().toISOString(),
+    }));
 
     return res.json({
       success: true,
@@ -4656,6 +4640,7 @@ app.get('/api/device-out-requests/:id', async (req, res) => {
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    console.error('[DB Error: GET /api/device-out-requests/:id]', msg);
     return res.status(500).json({ success: false, error: msg });
   }
 });
@@ -4694,132 +4679,73 @@ app.post('/api/device-out-requests', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Business Purpose is required for audit clearance.' });
     }
 
-    // Rule: Laptop must require approval
-    const approvalRequired = assetType === 'Laptop' ? true : (req.body.approvalRequired !== false);
-    const initialStatus = 'Pending';
+    const pool = getPool();
+    
+    // Construct a change request payload
+    const finalBehavior = `Asset: ${assetName || 'Unknown'}\nSerial Number: ${assetSerialNo || 'N/A'}\nDuration: ${fromDate} to ${toDate}\nVPN: ${vpnRequired || 'Not Required'}\nApproval: Required by IT Staff`;
 
-    deviceOutCounter += 1;
-    const year = new Date().getFullYear();
-    const newId = `DEV-OUT-${year}-${String(deviceOutCounter).padStart(5, '0')}`;
-    const nowIso = new Date().toISOString();
-
-    const newRecord = {
-      id: newId,
-      requestId: newId,
-      requesterId: requesterId || 'USR-ANON-001',
-      requesterName: requesterName || 'Employee Requester',
-      requesterEmail: requesterEmail || '',
-      departmentId: departmentId ? Number(departmentId) : 1,
+    const crPayload = {
+      title: `Bring Device Out: ${assetName || 'IT Asset'}`,
+      requesterId: requesterId,
+      requesterName: requesterName,
+      requesterEmail: requesterEmail || `${requesterId}@tanaka.com.my`,
+      departmentId: departmentId || 1,
       departmentName: departmentName || 'General',
-      assetType,
-      assetId: assetId || null,
-      assetName,
-      assetSerialNo: assetSerialNo || 'N/A',
-      fromDate,
-      toDate,
-      vpnRequired: vpnRequired === 'Required' ? 'Required' : 'Not Required',
-      businessPurpose,
-      approvalRequired,
-      approvalStatus: initialStatus,
-      approvedBy: null,
-      approvedByName: null,
-      approvedAt: null,
-      rejectionReason: null,
-      returnedAt: null,
-      returnedBy: null,
-      returnedByName: null,
-      returnRemarks: null,
-      createdAt: nowIso,
-      updatedAt: nowIso,
-      printCount: 0,
-      approvals: [
-        {
-          id: Date.now(),
-          requestId: newId,
-          approverId: requesterId || 'USR-ANON-001',
-          approverName: requesterName || 'Employee Requester',
-          action: 'Pending',
-          comments: 'Request submitted for out-pass authorization',
-          createdAt: nowIso,
-        }
-      ]
+      categoryId: 'cat-bring-device-out',
+      categoryName: 'Bring Device Out',
+      serviceId: 'srv-bring-device-out',
+      serviceName: assetType || 'Laptop',
+      applicationAssetId: assetId || null,
+      applicationName: assetName || 'IT Asset',
+      assetTag: assetSerialNo || null,
+      issueTypeId: 'iss-bring-device-out',
+      issueTypeName: 'Device Out Pass',
+      currentBehaviorDescription: finalBehavior,
+      requestedChangeDescription: businessPurpose,
+      businessJustification: businessPurpose,
+      requestedCompletionDate: toDate,
+      priority: 'Medium',
+      status: 'Pending IT Admin Review', // Direct to IT Admin as per requirement
+      submissionId: randomUUID()
     };
 
-    // Save to PostgreSQL
-    if (isDbConnected && dbPool) {
-      try {
-        const year = new Date().getFullYear();
-        const newId = `DEV-OUT-${year}-${Date.now().toString().slice(-5)}`;
+    // Forward to internal CR creation logic
+    const seqResult = await pool.query('SELECT generate_change_request_id() AS next_id');
+    const newId = seqResult.rows[0]?.next_id || `ITO-CR-2026-${Date.now().toString().slice(-5)}`;
 
-        const query = `
-          INSERT INTO device_out_requests (
-            id, request_id, requester_id, requester_name, requester_email,
-            department_id, department_name, asset_type, asset_id, asset_name, asset_serial_no,
-            from_date, to_date, vpn_required, business_purpose, approval_required, approval_status,
-            created_at, updated_at
-          ) VALUES ($1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-          RETURNING *;
-        `;
-        const values = [
-          newId,
-          requesterId || 'USR-ANON-001',
-          requesterName || 'Employee Requester',
-          requesterEmail || '',
-          departmentId ? Number(departmentId) : 1,
-          departmentName || 'General',
-          assetType,
-          assetId || null,
-          assetName,
-          assetSerialNo || 'N/A',
-          fromDate,
-          toDate,
-          vpnRequired === 'Required' ? 'Required' : 'Not Required',
-          businessPurpose,
-          approvalRequired,
-          initialStatus,
-        ];
-        const dbRes = await dbPool.query(query, values);
-        const savedRecord = dbRes.rows[0];
+    const insertQuery = `
+      INSERT INTO change_requests (
+        id, title, request_type, priority, sla_target_hours, status,
+        requester_id, requester_name, requester_email, department_id, department_name,
+        category_id, category_name, service_id, service_name, application_asset_id, application_name, asset_tag, issue_type_id, issue_type_name,
+        current_behavior_description, requested_change_description, business_justification,
+        requested_completion_date, submission_id, created_at, updated_at
+      ) VALUES (
+        $1, $2, 'Change Request', 'Medium', 168, $3,
+        $4, $5, $6, $7, $8,
+        $9, $10, $11, $12, $13, $14, $15, $16, $17,
+        $18, $19, $20,
+        $21, $22, NOW(), NOW()
+      ) RETURNING id
+    `;
+    const insertValues = [
+      newId, crPayload.title, crPayload.status,
+      crPayload.requesterId, crPayload.requesterName, crPayload.requesterEmail, crPayload.departmentId, crPayload.departmentName,
+      crPayload.categoryId, crPayload.categoryName, crPayload.serviceId, crPayload.serviceName, crPayload.applicationAssetId, crPayload.applicationName, crPayload.assetTag, crPayload.issueTypeId, crPayload.issueTypeName,
+      crPayload.currentBehaviorDescription, crPayload.requestedChangeDescription, crPayload.businessJustification,
+      crPayload.requestedCompletionDate, crPayload.submissionId
+    ];
 
-        await dbPool.query(`
-          INSERT INTO device_out_approvals (request_id, approver_id, approver_name, action, comments, created_at)
-          VALUES ($1, $2, $3, 'Pending', 'Request submitted for out-pass authorization', CURRENT_TIMESTAMP)
-        `, [newId, values[1], values[2]]);
+    await pool.query(insertQuery, insertValues);
 
-        return res.status(201).json({
-          success: true,
-          message: `Device out request ${newId} submitted successfully.`,
-          data: {
-            ...savedRecord,
-            requestId: savedRecord.request_id,
-            requesterId: savedRecord.requester_id,
-            requesterName: savedRecord.requester_name,
-            requesterEmail: savedRecord.requester_email,
-            departmentId: savedRecord.department_id,
-            departmentName: savedRecord.department_name,
-            assetType: savedRecord.asset_type,
-            assetId: savedRecord.asset_id,
-            assetName: savedRecord.asset_name,
-            assetSerialNo: savedRecord.asset_serial_no,
-            fromDate: savedRecord.from_date,
-            toDate: savedRecord.to_date,
-            vpnRequired: savedRecord.vpn_required,
-            businessPurpose: savedRecord.business_purpose,
-            approvalRequired: Boolean(savedRecord.approval_required),
-            approvalStatus: savedRecord.approval_status,
-            createdAt: savedRecord.created_at,
-            updatedAt: savedRecord.updated_at
-          },
-        });
-      } catch (dbErr) {
-        console.error('[DB Error: POST /api/device-out-requests]', dbErr instanceof Error ? dbErr.message : String(dbErr));
-        return res.status(500).json({ success: false, error: 'Failed to save request to database' });
-      }
-    } else {
-      return res.status(503).json({ success: false, error: 'Database unavailable' });
-    }
+    return res.status(201).json({
+      success: true,
+      message: `Device out request ${newId} submitted successfully.`,
+      data: { id: newId, requestId: newId }
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    console.error('[DB Error: POST /api/device-out-requests]', msg);
     return res.status(500).json({ success: false, error: msg });
   }
 });
@@ -4829,76 +4755,36 @@ app.post('/api/device-out-requests/:id/approve', async (req, res) => {
   try {
     const { id } = req.params;
     const { approvedBy, approvedByName, approverRole, comments } = req.body;
+    const pool = getPool();
 
-    // Rule: "IT staff can Approve/Reject."
     if (!isUserItStaff(approverRole)) {
-      return res.status(403).json({ success: false, error: 'Unauthorized: Only authorized IT staff can approve Bring Device Out requests.' });
+      return res.status(403).json({ success: false, error: 'Unauthorized: Only authorized IT staff can approve requests.' });
     }
 
-    // Rule: "Never allow approval without approved_by."
-    if (!approvedBy || !approvedBy.trim()) {
-      return res.status(400).json({ success: false, error: 'Validation Error: Never allow approval without approved_by.' });
-    }
+    await pool.query('BEGIN');
+    
+    // Update change_requests
+    await pool.query(`
+      UPDATE change_requests
+      SET status = 'In Progress',
+          hod_approved_by = $1,
+          hod_approved_at = NOW(),
+          updated_at = NOW()
+      WHERE id = $2
+    `, [approvedByName, id]);
 
-    const nowIso = new Date().toISOString();
+    // Insert into approval history
+    await pool.query(`
+      INSERT INTO change_request_approval_history (change_request_id, actor_user_id, actor_name, actor_role, from_status, to_status, decision, comments)
+      VALUES ($1, $2, $3, $4, 'Pending IT Admin Review', 'In Progress', 'Approved', $5)
+    `, [id, approvedBy, approvedByName || 'Authorized Approver', approverRole, comments || 'Authorized device removal.']);
 
-    // Update in memory
-    const reqIndex = memoryDeviceOutRequests.findIndex(r => r.id === id || r.requestId === id);
-    if (reqIndex !== -1) {
-      memoryDeviceOutRequests[reqIndex].approvalStatus = 'Approved';
-      memoryDeviceOutRequests[reqIndex].approvedBy = approvedBy;
-      memoryDeviceOutRequests[reqIndex].approvedByName = approvedByName || 'IT Staff Approver';
-      memoryDeviceOutRequests[reqIndex].approvedAt = nowIso;
-      memoryDeviceOutRequests[reqIndex].updatedAt = nowIso;
+    await pool.query('COMMIT');
 
-      const approvalEntry = {
-        id: Date.now(),
-        requestId: id,
-        approverId: approvedBy,
-        approverName: approvedByName || 'IT Staff Approver',
-        approverRole: approverRole || 'IT Staff',
-        action: 'Approved',
-        comments: comments || 'Authorized device removal for specified business purpose.',
-        createdAt: nowIso,
-      };
-      memoryDeviceOutApprovals.push(approvalEntry);
-      if (!memoryDeviceOutRequests[reqIndex].approvals) {
-        memoryDeviceOutRequests[reqIndex].approvals = [];
-      }
-      memoryDeviceOutRequests[reqIndex].approvals.push(approvalEntry);
-    }
-
-    // Update in PostgreSQL
-    if (isDbConnected && dbPool) {
-      try {
-        await dbPool.query(`
-          UPDATE device_out_requests
-          SET approval_status = 'Approved',
-              approved_by = $1,
-              approved_by_name = $2,
-              approved_at = CURRENT_TIMESTAMP,
-              updated_at = CURRENT_TIMESTAMP
-          WHERE id = $3 OR request_id = $3
-        `, [approvedBy, approvedByName || 'IT Staff Approver', id]);
-
-        await dbPool.query(`
-          INSERT INTO device_out_approvals (request_id, approver_id, approver_name, approver_role, action, comments, created_at)
-          VALUES ($1, $2, $3, $4, 'Approved', $5, CURRENT_TIMESTAMP)
-        `, [id, approvedBy, approvedByName || 'IT Staff Approver', approverRole || 'IT Staff', comments || 'Authorized device removal for specified business purpose.']);
-
-        return res.json({
-          success: true,
-          message: `Device Out request ${id} is APPROVED. SATO CL4NX sticker printing is now enabled.`,
-          data: { id, approvalStatus: 'Approved' },
-        });
-      } catch (dbErr) {
-        console.error('[DB Error: Approve /api/device-out-requests/:id]', dbErr instanceof Error ? dbErr.message : String(dbErr));
-        return res.status(500).json({ success: false, error: 'Database update failed' });
-      }
-    } else {
-      return res.status(503).json({ success: false, error: 'Database unavailable' });
-    }
+    return res.json({ success: true, message: `Request ${id} approved.` });
   } catch (err) {
+    const pool = getPool();
+    await pool.query('ROLLBACK');
     const msg = err instanceof Error ? err.message : String(err);
     return res.status(500).json({ success: false, error: msg });
   }
@@ -4908,67 +4794,37 @@ app.post('/api/device-out-requests/:id/approve', async (req, res) => {
 app.post('/api/device-out-requests/:id/reject', async (req, res) => {
   try {
     const { id } = req.params;
-    const { rejectedBy, rejectedByName, approverRole, rejectionReason, comments } = req.body;
+    const { rejectedBy, rejectedByName, approverRole, rejectionReason } = req.body;
+    const pool = getPool();
 
     if (!isUserItStaff(approverRole)) {
-      return res.status(403).json({ success: false, error: 'Unauthorized: Only authorized IT staff can reject Bring Device Out requests.' });
+      return res.status(403).json({ success: false, error: 'Unauthorized.' });
     }
 
-    const reason = rejectionReason || comments;
-    if (!reason || !reason.trim()) {
-      return res.status(400).json({ success: false, error: 'Rejection reason is mandatory when declining a device out request.' });
-    }
+    await pool.query('BEGIN');
+    
+    await pool.query(`
+      UPDATE change_requests
+      SET status = 'Closed (Rejected)',
+          rejection_reason = $1,
+          rejected_by_user_id = $2,
+          rejected_by_name = $3,
+          rejected_by_role = $4,
+          rejected_at = NOW(),
+          updated_at = NOW()
+      WHERE id = $5
+    `, [rejectionReason, rejectedBy, rejectedByName, approverRole, id]);
 
-    const nowIso = new Date().toISOString();
+    await pool.query(`
+      INSERT INTO change_request_approval_history (change_request_id, actor_user_id, actor_name, actor_role, from_status, to_status, decision, comments)
+      VALUES ($1, $2, $3, $4, 'Pending IT Admin Review', 'Closed (Rejected)', 'Rejected', $5)
+    `, [id, rejectedBy, rejectedByName || 'Authorized Approver', approverRole, rejectionReason]);
 
-    const reqIndex = memoryDeviceOutRequests.findIndex(r => r.id === id || r.requestId === id);
-    if (reqIndex !== -1) {
-      memoryDeviceOutRequests[reqIndex].approvalStatus = 'Rejected';
-      memoryDeviceOutRequests[reqIndex].rejectionReason = reason;
-      memoryDeviceOutRequests[reqIndex].updatedAt = nowIso;
-
-      const approvalEntry = {
-        id: Date.now(),
-        requestId: id,
-        approverId: rejectedBy || 'USR-IT-STAFF',
-        approverName: rejectedByName || 'IT Staff Reviewer',
-        approverRole: approverRole || 'IT Staff',
-        action: 'Rejected',
-        comments: reason,
-        createdAt: nowIso,
-      };
-      memoryDeviceOutApprovals.push(approvalEntry);
-      if (!memoryDeviceOutRequests[reqIndex].approvals) {
-        memoryDeviceOutRequests[reqIndex].approvals = [];
-      }
-      memoryDeviceOutRequests[reqIndex].approvals.push(approvalEntry);
-    }
-
-    if (isDbConnected && dbPool) {
-      try {
-        await dbPool.query(`
-          UPDATE device_out_requests
-          SET approval_status = 'Rejected',
-              rejection_reason = $1,
-              updated_at = CURRENT_TIMESTAMP
-          WHERE id = $2 OR request_id = $2
-        `, [reason, id]);
-
-        await dbPool.query(`
-          INSERT INTO device_out_approvals (request_id, approver_id, approver_name, approver_role, action, comments, created_at)
-          VALUES ($1, $2, $3, $4, 'Rejected', $5, CURRENT_TIMESTAMP)
-        `, [id, rejectedBy || 'USR-IT-STAFF', rejectedByName || 'IT Staff Reviewer', approverRole || 'IT Staff', reason]);
-      } catch (dbErr) {
-        console.warn('[DB Fallback: Reject /api/device-out-requests/:id]', dbErr instanceof Error ? dbErr.message : String(dbErr));
-      }
-    }
-
-    return res.json({
-      success: true,
-      message: `Device Out request ${id} has been REJECTED.`,
-      data: reqIndex !== -1 ? memoryDeviceOutRequests[reqIndex] : { id, approvalStatus: 'Rejected' },
-    });
+    await pool.query('COMMIT');
+    return res.json({ success: true, message: `Request ${id} rejected.` });
   } catch (err) {
+    const pool = getPool();
+    await pool.query('ROLLBACK');
     const msg = err instanceof Error ? err.message : String(err);
     return res.status(500).json({ success: false, error: msg });
   }
@@ -4979,67 +4835,32 @@ app.post('/api/device-out-requests/:id/return', async (req, res) => {
   try {
     const { id } = req.params;
     const { returnedBy, returnedByName, approverRole, remarks } = req.body;
+    const pool = getPool();
 
     if (!isUserItStaff(approverRole)) {
-      return res.status(403).json({ success: false, error: 'Unauthorized: Only IT staff can mark devices as returned.' });
+      return res.status(403).json({ success: false, error: 'Unauthorized.' });
     }
 
-    const nowIso = new Date().toISOString();
+    await pool.query('BEGIN');
+    
+    await pool.query(`
+      UPDATE change_requests
+      SET status = 'Closed (Completed)',
+          actual_completion_date = CURRENT_DATE,
+          updated_at = NOW()
+      WHERE id = $1
+    `, [id]);
 
-    const reqIndex = memoryDeviceOutRequests.findIndex(r => r.id === id || r.requestId === id);
-    if (reqIndex !== -1) {
-      memoryDeviceOutRequests[reqIndex].approvalStatus = 'Returned/Closed';
-      memoryDeviceOutRequests[reqIndex].returnedAt = nowIso;
-      memoryDeviceOutRequests[reqIndex].returnedBy = returnedBy || 'USR-IT-STAFF';
-      memoryDeviceOutRequests[reqIndex].returnedByName = returnedByName || 'IT Custodian';
-      memoryDeviceOutRequests[reqIndex].returnRemarks = remarks || 'Device returned and checked into pool inventory.';
-      memoryDeviceOutRequests[reqIndex].updatedAt = nowIso;
+    await pool.query(`
+      INSERT INTO change_request_approval_history (change_request_id, actor_user_id, actor_name, actor_role, from_status, to_status, decision, comments)
+      VALUES ($1, $2, $3, $4, 'In Progress', 'Closed (Completed)', 'Returned', $5)
+    `, [id, returnedBy, returnedByName || 'Authorized Receiver', approverRole, remarks || 'Device returned.']);
 
-      const approvalEntry = {
-        id: Date.now(),
-        requestId: id,
-        approverId: returnedBy || 'USR-IT-STAFF',
-        approverName: returnedByName || 'IT Custodian',
-        approverRole: approverRole || 'IT Staff',
-        action: 'Returned/Closed',
-        comments: remarks || 'Device returned in good condition. Out-pass closed.',
-        createdAt: nowIso,
-      };
-      memoryDeviceOutApprovals.push(approvalEntry);
-      if (!memoryDeviceOutRequests[reqIndex].approvals) {
-        memoryDeviceOutRequests[reqIndex].approvals = [];
-      }
-      memoryDeviceOutRequests[reqIndex].approvals.push(approvalEntry);
-    }
-
-    if (isDbConnected && dbPool) {
-      try {
-        await dbPool.query(`
-          UPDATE device_out_requests
-          SET approval_status = 'Returned/Closed',
-              returned_at = CURRENT_TIMESTAMP,
-              returned_by = $1,
-              returned_by_name = $2,
-              return_remarks = $3,
-              updated_at = CURRENT_TIMESTAMP
-          WHERE id = $4 OR request_id = $4
-        `, [returnedBy || 'USR-IT-STAFF', returnedByName || 'IT Custodian', remarks || 'Device returned in good condition.', id]);
-
-        await dbPool.query(`
-          INSERT INTO device_out_approvals (request_id, approver_id, approver_name, approver_role, action, comments, created_at)
-          VALUES ($1, $2, $3, $4, 'Returned/Closed', $5, CURRENT_TIMESTAMP)
-        `, [id, returnedBy || 'USR-IT-STAFF', returnedByName || 'IT Custodian', approverRole || 'IT Staff', remarks || 'Device returned in good condition.']);
-      } catch (dbErr) {
-        console.warn('[DB Fallback: Return /api/device-out-requests/:id]', dbErr instanceof Error ? dbErr.message : String(dbErr));
-      }
-    }
-
-    return res.json({
-      success: true,
-      message: `Device Out request ${id} is marked as RETURNED and CLOSED. Sticker printing is disabled.`,
-      data: reqIndex !== -1 ? memoryDeviceOutRequests[reqIndex] : { id, approvalStatus: 'Returned/Closed' },
-    });
+    await pool.query('COMMIT');
+    return res.json({ success: true, message: `Device marked as returned for ${id}.` });
   } catch (err) {
+    const pool = getPool();
+    await pool.query('ROLLBACK');
     const msg = err instanceof Error ? err.message : String(err);
     return res.status(500).json({ success: false, error: msg });
   }
@@ -5048,52 +4869,49 @@ app.post('/api/device-out-requests/:id/return', async (req, res) => {
 // GET: Label Templates
 app.get('/api/label-templates', async (req, res) => {
   try {
-    let templates = [...memoryLabelTemplates];
+    const pool = getPool();
+    const tplRes = await pool.query('SELECT * FROM label_templates ORDER BY is_active DESC, created_at ASC');
+    let templates = [];
 
-    if (isDbConnected && dbPool) {
-      try {
-        const tplRes = await dbPool.query('SELECT * FROM label_templates ORDER BY is_active DESC, created_at ASC');
-        if (tplRes.rows.length > 0) {
-          const tplIds = tplRes.rows.map(r => r.id);
-          const elRes = await dbPool.query('SELECT * FROM label_template_elements WHERE template_id = ANY($1)', [tplIds]);
+    if (tplRes.rows.length > 0) {
+      const tplIds = tplRes.rows.map(r => r.id);
+      const elRes = await pool.query('SELECT * FROM label_template_elements WHERE template_id = ANY($1)', [tplIds]);
 
-          templates = tplRes.rows.map(t => {
-            const elements = elRes.rows
-              .filter(e => e.template_id === t.id)
-              .map(e => ({
-                id: e.id,
-                templateId: e.template_id,
-                elementType: e.element_type,
-                fieldKey: e.field_key,
-                xMm: Number(e.x_mm),
-                yMm: Number(e.y_mm),
-                widthMm: Number(e.width_mm),
-                heightMm: Number(e.height_mm),
-                fontSize: Number(e.font_size),
-                fontWeight: e.font_weight,
-                visible: Boolean(e.visible),
-                alignment: e.alignment,
-                rotation: Number(e.rotation),
-              }));
+      templates = tplRes.rows.map(t => {
+        const elements = elRes.rows
+          .filter(e => e.template_id === t.id)
+          .map(e => ({
+            id: e.id,
+            templateId: e.template_id,
+            elementType: e.element_type,
+            fieldType: e.field_type || 'dynamic',
+            fieldKey: e.field_key,
+            staticText: e.static_text,
+            xMm: Number(e.x_mm),
+            yMm: Number(e.y_mm),
+            widthMm: Number(e.width_mm),
+            heightMm: Number(e.height_mm),
+            fontSize: Number(e.font_size),
+            fontWeight: e.font_weight,
+            visible: Boolean(e.visible),
+            alignment: e.alignment,
+            rotation: Number(e.rotation),
+          }));
 
-            return {
-              id: t.id,
-              name: t.name,
-              widthMm: Number(t.width_mm),
-              heightMm: Number(t.height_mm),
-              orientation: t.orientation,
-              isActive: Boolean(t.is_active),
-              createdBy: t.created_by,
-              updatedBy: t.updated_by,
-              createdAt: t.created_at ? new Date(t.created_at).toISOString() : new Date().toISOString(),
-              updatedAt: t.updated_at ? new Date(t.updated_at).toISOString() : null,
-              elements,
-            };
-          });
-        }
-      } catch (dbErr) {
-        console.warn('[DB Fallback: /api/label-templates]', dbErr instanceof Error ? dbErr.message : String(dbErr));
-      }
+        return {
+          id: t.id,
+          name: t.name,
+          widthMm: Number(t.width_mm),
+          heightMm: Number(t.height_mm),
+          orientation: t.orientation,
+          isActive: Boolean(t.is_active),
+          createdBy: t.created_by,
+          updatedBy: t.updated_by,
+          createdAt: t.created_at ? new Date(t.created_at).toISOString() : new Date().toISOString(),
+          updatedAt: t.updated_at ? new Date(t.updated_at).toISOString() : null,
+          elements,
+        };
+      });
     }
 
     return res.json({ success: true, data: templates });
@@ -5134,6 +4952,9 @@ app.post('/api/label-templates', async (req, res) => {
         ...el,
         id: el.id || `el-${idx + 1}`,
         templateId: id,
+        fieldType: el.fieldType || 'dynamic',
+        fieldKey: el.fieldKey || '',
+        staticText: el.staticText || '',
         xMm: Number(el.xMm || 0),
         yMm: Number(el.yMm || 0),
         widthMm: Number(el.widthMm || 40),
@@ -5146,57 +4967,46 @@ app.post('/api/label-templates', async (req, res) => {
       }))
     };
 
-    // Update in memory
-    const existingIndex = memoryLabelTemplates.findIndex(t => t.id === id);
-    if (existingIndex !== -1) {
-      memoryLabelTemplates[existingIndex] = templateObj;
-    } else {
-      memoryLabelTemplates.push(templateObj);
-    }
-
     // Save to PostgreSQL
-    if (isDbConnected && dbPool) {
-      try {
-        await dbPool.query(`
-          INSERT INTO label_templates (id, name, width_mm, height_mm, orientation, is_active, updated_by, updated_at)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
-          ON CONFLICT (id) DO UPDATE SET
-            name = EXCLUDED.name,
-            width_mm = EXCLUDED.width_mm,
-            height_mm = EXCLUDED.height_mm,
-            orientation = EXCLUDED.orientation,
-            is_active = EXCLUDED.is_active,
-            updated_by = EXCLUDED.updated_by,
-            updated_at = CURRENT_TIMESTAMP;
-        `, [id, name, templateObj.widthMm, templateObj.heightMm, orientation, isActive, updatedBy]);
+    const pool = getPool();
+    await pool.query(`
+      INSERT INTO label_templates (id, name, width_mm, height_mm, orientation, is_active, updated_by, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
+      ON CONFLICT (id) DO UPDATE SET
+        name = EXCLUDED.name,
+        width_mm = EXCLUDED.width_mm,
+        height_mm = EXCLUDED.height_mm,
+        orientation = EXCLUDED.orientation,
+        is_active = EXCLUDED.is_active,
+        updated_by = EXCLUDED.updated_by,
+        updated_at = CURRENT_TIMESTAMP;
+    `, [id, name, templateObj.widthMm, templateObj.heightMm, orientation, isActive, updatedBy]);
 
-        await dbPool.query('DELETE FROM label_template_elements WHERE template_id = $1', [id]);
+    await pool.query('DELETE FROM label_template_elements WHERE template_id = $1', [id]);
 
-        for (const el of templateObj.elements) {
-          await dbPool.query(`
-            INSERT INTO label_template_elements (
-              id, template_id, element_type, field_key, x_mm, y_mm, width_mm, height_mm,
-              font_size, font_weight, visible, alignment, rotation
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-          `, [
-            el.id,
-            id,
-            el.elementType || 'text',
-            el.fieldKey,
-            el.xMm,
-            el.yMm,
-            el.widthMm,
-            el.heightMm,
-            el.fontSize,
-            el.fontWeight,
-            el.visible,
-            el.alignment,
-            el.rotation,
-          ]);
-        }
-      } catch (dbErr) {
-        console.warn('[DB Fallback: POST /api/label-templates]', dbErr instanceof Error ? dbErr.message : String(dbErr));
-      }
+    for (const el of templateObj.elements) {
+      await pool.query(`
+        INSERT INTO label_template_elements (
+          id, template_id, element_type, field_type, field_key, static_text, x_mm, y_mm, width_mm, height_mm,
+          font_size, font_weight, visible, alignment, rotation
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+      `, [
+        el.id,
+        id,
+        el.elementType || 'text',
+        el.fieldType || 'dynamic',
+        el.fieldKey,
+        el.staticText,
+        el.xMm,
+        el.yMm,
+        el.widthMm,
+        el.heightMm,
+        el.fontSize,
+        el.fontWeight,
+        el.visible,
+        el.alignment,
+        el.rotation,
+      ]);
     }
 
     return res.json({
@@ -5218,40 +5028,39 @@ app.delete('/api/label-templates/:id', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Template ID is required.' });
     }
 
-    if (memoryLabelTemplates.length <= 1) {
+    const pool = getPool();
+    const countRes = await pool.query('SELECT COUNT(*) FROM label_templates');
+    const totalCount = parseInt(countRes.rows[0].count);
+
+    if (totalCount <= 1) {
       return res.status(400).json({
         success: false,
         error: 'Cannot delete the only remaining label template. At least one template must remain in the system.'
       });
     }
 
-    const tplIndex = memoryLabelTemplates.findIndex(t => t.id === id);
-    if (tplIndex === -1) {
+    const tplRes = await pool.query('SELECT is_active FROM label_templates WHERE id = $1', [id]);
+    if (tplRes.rows.length === 0) {
       return res.status(404).json({ success: false, error: 'Label template not found.' });
     }
+    const isActive = tplRes.rows[0].is_active;
 
-    const deleted = memoryLabelTemplates.splice(tplIndex, 1)[0];
+    await pool.query('BEGIN');
+    await pool.query('DELETE FROM label_template_elements WHERE template_id = $1', [id]);
+    await pool.query('DELETE FROM label_templates WHERE id = $1', [id]);
 
-    // If the deleted template was active, make the first remaining template active
-    if (deleted.isActive && memoryLabelTemplates.length > 0) {
-      memoryLabelTemplates[0].isActive = true;
-    }
-
-    if (isDbConnected && dbPool) {
-      try {
-        await dbPool.query('DELETE FROM label_template_elements WHERE template_id = $1', [id]);
-        await dbPool.query('DELETE FROM label_templates WHERE id = $1', [id]);
-        if (deleted.isActive && memoryLabelTemplates.length > 0) {
-          await dbPool.query('UPDATE label_templates SET is_active = TRUE WHERE id = $1', [memoryLabelTemplates[0].id]);
-        }
-      } catch (dbErr) {
-        console.warn('[DB Fallback: DELETE /api/label-templates/:id]', dbErr instanceof Error ? dbErr.message : String(dbErr));
+    if (isActive) {
+      // Activate another template
+      const firstTpl = await pool.query('SELECT id FROM label_templates LIMIT 1');
+      if (firstTpl.rows.length > 0) {
+        await pool.query('UPDATE label_templates SET is_active = TRUE WHERE id = $1', [firstTpl.rows[0].id]);
       }
     }
+    await pool.query('COMMIT');
 
     return res.json({
       success: true,
-      message: `Label template '${deleted.name}' deleted successfully.`
+      message: `Label template deleted successfully.`
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -5268,92 +5077,56 @@ app.post('/api/label-print-history', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Request ID is required to log label print.' });
     }
 
-    // Strict Rule Validation:
-    // "Only APPROVED requests can print a sticker."
-    // "Never allow printing unless approval_status = APPROVED."
-    // "Prevent printing after Returned/Closed."
-    let requestObj = memoryDeviceOutRequests.find(r => r.id === requestId || r.requestId === requestId);
-
-    if (isDbConnected && dbPool) {
-      try {
-        const dbReq = await dbPool.query('SELECT * FROM device_out_requests WHERE id = $1 OR request_id = $1', [requestId]);
-        if (dbReq.rows.length > 0) {
-          const row = dbReq.rows[0];
-          requestObj = {
-            id: row.id,
-            requestId: row.request_id || row.id,
-            approvalStatus: row.approval_status,
-          };
-        }
-      } catch (dbErr) {
-        console.warn('[DB Fallback: Verify Request in /api/label-print-history]', dbErr instanceof Error ? dbErr.message : String(dbErr));
-      }
-    }
-
-    if (!requestObj) {
+    const pool = getPool();
+    const dbReq = await pool.query('SELECT * FROM change_requests WHERE id = $1', [requestId]);
+    
+    if (dbReq.rows.length === 0) {
       return res.status(404).json({ success: false, error: `Device Out request ${requestId} not found.` });
     }
 
-    if (requestObj.approvalStatus === 'Returned/Closed') {
+    const row = dbReq.rows[0];
+    const requestObj = {
+      id: row.id,
+      requestId: row.id,
+      approvalStatus: row.status,
+    };
+
+    if (requestObj.approvalStatus === 'Closed (Completed)' || requestObj.approvalStatus === 'Closed (Rejected)') {
       return res.status(400).json({
         success: false,
-        error: 'Security Enforcement: Printing is disabled because this device out-pass has already been Returned/Closed.'
+        error: 'Security Enforcement: Printing is disabled because this device out-pass has already been closed.'
       });
     }
 
-    if (requestObj.approvalStatus !== 'Approved') {
+    // Only allow printing if status is 'In Progress' (which we treat as approved for printing)
+    // or if the user specifically wants 'Approved' status.
+    // Based on the user request: "Only requests with approval status Approved are permitted to print security stickers."
+    // In our system, when IT Approves, it moves to 'In Progress'.
+    if (requestObj.approvalStatus !== 'In Progress' && requestObj.approvalStatus !== 'Approved') {
       return res.status(400).json({
         success: false,
-        error: `Security Enforcement: Never allow printing unless approval_status = APPROVED. Current status is '${requestObj.approvalStatus}'.`
+        error: `Security Enforcement: Never allow printing unless approved. Current status is '${requestObj.approvalStatus}'.`
       });
     }
 
     const nowIso = new Date().toISOString();
     const count = Math.max(1, Number(printCount) || 1);
 
-    const historyRecord = {
-      id: Date.now(),
+    await pool.query(`
+      INSERT INTO label_print_history (request_id, template_id, printed_by, printed_by_name, printer_name, print_count, printed_at)
+      VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+    `, [
       requestId,
-      templateId: templateId || 'tpl-sato-cl4nx-std',
-      printedBy: printedBy || 'USR-IT-STAFF',
-      printedByName: printedByName || 'IT Staff Member',
-      printerName: printerName || 'SATO CL4NX',
-      printCount: count,
-      printedAt: nowIso,
-    };
-
-    memoryLabelPrintHistory.push(historyRecord);
-
-    // Update print count in memory
-    const reqIndex = memoryDeviceOutRequests.findIndex(r => r.id === requestId || r.requestId === requestId);
-    if (reqIndex !== -1) {
-      memoryDeviceOutRequests[reqIndex].printCount = (memoryDeviceOutRequests[reqIndex].printCount || 0) + count;
-      memoryDeviceOutRequests[reqIndex].lastPrintedAt = nowIso;
-    }
-
-    // Log to PostgreSQL
-    if (isDbConnected && dbPool) {
-      try {
-        await dbPool.query(`
-          INSERT INTO label_print_history (request_id, template_id, printed_by, printed_by_name, printer_name, print_count, printed_at)
-          VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
-        `, [
-          requestId,
-          templateId || 'tpl-sato-cl4nx-std',
-          printedBy || 'USR-IT-STAFF',
-          printedByName || 'IT Staff Member',
-          printerName || 'SATO CL4NX',
-          count,
-        ]);
-      } catch (dbErr) {
-        console.warn('[DB Fallback: INSERT label_print_history]', dbErr instanceof Error ? dbErr.message : String(dbErr));
-      }
-    }
+      templateId || 'tpl-sato-cl4nx-std',
+      printedBy || 'USR-IT-STAFF',
+      printedByName || 'IT Staff Member',
+      printerName || 'SATO CL4NX',
+      count,
+    ]);
 
     return res.json({
       success: true,
       message: `Print of ${count} label(s) logged successfully for ${printerName}.`,
-      data: historyRecord,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -5380,65 +5153,51 @@ app.get('/api/release-notes', async (req, res) => {
 
     let releases: any[] = [];
 
-    if (isDbConnected && dbPool) {
-      try {
-        let query = `
-          SELECT rn.id, rn.version, rn.title, TO_CHAR(rn.release_date, 'YYYY-MM-DD') as "releaseDate",
-                 rn.summary, rn.status, rn.published_at as "publishedAt",
-                 rn.created_by as "createdBy", rn.updated_by as "updatedBy",
-                 rn.created_at as "createdAt", rn.updated_at as "updatedAt",
-                 u1.full_name as "createdByName",
-                 u2.full_name as "updatedByName",
-                 CASE 
-                   WHEN $1::text IS NOT NULL THEN
-                     EXISTS (SELECT 1 FROM release_note_reads r WHERE r.release_id = rn.id AND r.user_id = $1::text)
-                   ELSE false
-                 END as "isRead"
-          FROM release_notes rn
-          LEFT JOIN users u1 ON rn.created_by = u1.id
-          LEFT JOIN users u2 ON rn.updated_by = u2.id
-        `;
-        const params: any[] = [userId || null];
+    if (dbPool) {
+      const pool = getPool();
+      let query = `
+        SELECT rn.id, rn.version, rn.title, TO_CHAR(rn.release_date, 'YYYY-MM-DD') as "releaseDate",
+               rn.summary, rn.status, rn.published_at as "publishedAt",
+               rn.created_by as "createdBy", rn.updated_by as "updatedBy",
+               rn.created_at as "createdAt", rn.updated_at as "updatedAt",
+               u1.full_name as "createdByName",
+               u2.full_name as "updatedByName",
+               CASE 
+                 WHEN $1::text IS NOT NULL THEN
+                   EXISTS (SELECT 1 FROM release_note_reads r WHERE r.release_id = rn.id AND r.user_id = $1::text)
+                 ELSE false
+               END as "isRead"
+        FROM release_notes rn
+        LEFT JOIN users u1 ON rn.created_by = u1.id
+        LEFT JOIN users u2 ON rn.updated_by = u2.id
+      `;
+      const params: any[] = [userId || null];
 
-        if (!allowDrafts) {
-          query += ` WHERE rn.status = 'Published'`;
-        }
-
-        query += ` ORDER BY rn.release_date DESC, rn.created_at DESC`;
-
-        const dbRes = await dbPool.query(query, params);
-        const relRows = dbRes.rows || [];
-
-        if (relRows.length > 0) {
-          const relIds = relRows.map(r => r.id);
-          const itemsRes = await dbPool.query(
-            `SELECT id, release_id as "releaseId", type, description, sort_order as "sortOrder"
-             FROM release_note_items
-             WHERE release_id = ANY($1::varchar[])
-             ORDER BY sort_order ASC, id ASC`,
-            [relIds]
-          );
-          const allItems = itemsRes.rows || [];
-
-          releases = relRows.map(rn => ({
-            ...rn,
-            items: allItems.filter(item => item.releaseId === rn.id),
-          }));
-        }
-      } catch (dbErr) {
-        console.warn('[DB Fallback: /api/release-notes]', dbErr instanceof Error ? dbErr.message : String(dbErr));
+      if (!allowDrafts) {
+        query += ` WHERE rn.status = 'Published'`;
       }
-    }
 
-    if (releases.length === 0) {
-      // Memory fallback
-      releases = memoryReleaseNotes
-        .filter(r => allowDrafts || r.status === 'Published')
-        .map(r => ({
-          ...r,
-          isRead: userId ? memoryReleaseReads.some(read => read.releaseId === r.id && read.userId === userId) : false,
-        }))
-        .sort((a, b) => new Date(b.releaseDate).getTime() - new Date(a.releaseDate).getTime());
+      query += ` ORDER BY rn.release_date DESC, rn.created_at DESC`;
+
+      const dbRes = await pool.query(query, params);
+      const relRows = dbRes.rows || [];
+
+      if (relRows.length > 0) {
+        const relIds = relRows.map(r => r.id);
+        const itemsRes = await pool.query(
+          `SELECT id, release_id as "releaseId", type, description, sort_order as "sortOrder"
+           FROM release_note_items
+           WHERE release_id = ANY($1::varchar[])
+           ORDER BY sort_order ASC, id ASC`,
+          [relIds]
+        );
+        const allItems = itemsRes.rows || [];
+
+        releases = relRows.map(rn => ({
+          ...rn,
+          items: allItems.filter(item => item.releaseId === rn.id),
+        }));
+      }
     }
 
     return res.json({ success: true, data: releases });
@@ -5457,28 +5216,18 @@ app.get('/api/release-notes/unread-count', async (req, res) => {
     }
 
     let unreadCount = 0;
-
-    if (isDbConnected && dbPool) {
-      try {
-        const countRes = await dbPool.query(
-          `SELECT COUNT(*)::int as count
-           FROM release_notes rn
-           WHERE rn.status = 'Published'
-             AND NOT EXISTS (
-               SELECT 1 FROM release_note_reads r
-               WHERE r.release_id = rn.id AND r.user_id = $1
-             )`,
-          [userId]
-        );
-        unreadCount = countRes.rows[0]?.count || 0;
-      } catch (dbErr) {
-        console.warn('[DB Fallback: unread-count]', dbErr instanceof Error ? dbErr.message : String(dbErr));
-      }
-    } else {
-      unreadCount = memoryReleaseNotes.filter(
-        r => r.status === 'Published' && !memoryReleaseReads.some(read => read.releaseId === r.id && read.userId === userId)
-      ).length;
-    }
+    const pool = getPool();
+    const countRes = await pool.query(
+      `SELECT COUNT(*)::int as count
+       FROM release_notes rn
+       WHERE rn.status = 'Published'
+         AND NOT EXISTS (
+           SELECT 1 FROM release_note_reads r
+           WHERE r.release_id = rn.id AND r.user_id = $1
+         )`,
+      [userId]
+    );
+    unreadCount = countRes.rows[0]?.count || 0;
 
     return res.json({ success: true, count: unreadCount });
   } catch (err) {
@@ -5500,24 +5249,13 @@ app.post('/api/release-notes/:id/read', async (req, res) => {
     const nowIso = new Date().toISOString();
     const readId = `read-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
-    // Memory update
-    const existingIdx = memoryReleaseReads.findIndex(r => r.releaseId === id && r.userId === userId);
-    if (existingIdx === -1) {
-      memoryReleaseReads.push({ id: readId, releaseId: id, userId, readAt: nowIso });
-    }
-
-    if (isDbConnected && dbPool) {
-      try {
-        await dbPool.query(
-          `INSERT INTO release_note_reads (id, release_id, user_id, read_at)
-           VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
-           ON CONFLICT (release_id, user_id) DO UPDATE SET read_at = CURRENT_TIMESTAMP`,
-          [readId, id, userId]
-        );
-      } catch (dbErr) {
-        console.warn('[DB Fallback: POST /api/release-notes/:id/read]', dbErr instanceof Error ? dbErr.message : String(dbErr));
-      }
-    }
+    const pool = getPool();
+    await pool.query(
+      `INSERT INTO release_note_reads (id, release_id, user_id, read_at)
+       VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+       ON CONFLICT (release_id, user_id) DO UPDATE SET read_at = CURRENT_TIMESTAMP`,
+      [readId, id, userId]
+    );
 
     return res.json({ success: true, message: 'Release marked as read.' });
   } catch (err) {
@@ -5588,36 +5326,30 @@ app.post('/api/release-notes', async (req, res) => {
       items: formattedItems,
     };
 
-    // Update memory
-    memoryReleaseNotes.unshift(newRelease);
+    if (dbPool) {
+      const pool = getPool();
+      await pool.query(
+        `INSERT INTO release_notes (id, version, title, release_date, summary, status, published_at, created_by, updated_by, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        [
+          newId,
+          newRelease.version,
+          newRelease.title,
+          newRelease.releaseDate,
+          newRelease.summary,
+          newRelease.status,
+          newRelease.publishedAt,
+          newRelease.createdBy,
+          newRelease.updatedBy
+        ]
+      );
 
-    if (isDbConnected && dbPool) {
-      try {
-        await dbPool.query(
-          `INSERT INTO release_notes (id, version, title, release_date, summary, status, published_at, created_by, updated_by, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-          [
-            newId,
-            newRelease.version,
-            newRelease.title,
-            newRelease.releaseDate,
-            newRelease.summary,
-            newRelease.status,
-            newRelease.publishedAt,
-            newRelease.createdBy,
-            newRelease.updatedBy
-          ]
+      for (const item of formattedItems) {
+        await pool.query(
+          `INSERT INTO release_note_items (id, release_id, type, description, sort_order)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [item.id, newId, item.type, item.description, item.sortOrder]
         );
-
-        for (const item of formattedItems) {
-          await dbPool.query(
-            `INSERT INTO release_note_items (id, release_id, type, description, sort_order)
-             VALUES ($1, $2, $3, $4, $5)`,
-            [item.id, newId, item.type, item.description, item.sortOrder]
-          );
-        }
-      } catch (dbErr) {
-        console.warn('[DB Fallback: POST /api/release-notes]', dbErr instanceof Error ? dbErr.message : String(dbErr));
       }
     }
 
@@ -5662,77 +5394,46 @@ app.put('/api/release-notes/:id', async (req, res) => {
       return res.status(403).json({ success: false, error: 'Unauthorized: Only Administrators can update release notes.' });
     }
 
-    const nowIso = new Date().toISOString();
-    const memIdx = memoryReleaseNotes.findIndex(r => r.id === id);
-
-    let currentPublishedAt: string | null = null;
-    if (memIdx !== -1) {
-      currentPublishedAt = memoryReleaseNotes[memIdx].publishedAt;
-    }
-
-    const publishedAt = status === 'Published' ? (currentPublishedAt || nowIso) : null;
-
-    const formattedItems = (items || []).map((item, idx) => ({
-      id: item.id || `item-${Date.now()}-${idx}`,
-      releaseId: id,
-      type: item.type || "What's New",
-      description: item.description || '',
-      sortOrder: item.sortOrder !== undefined ? item.sortOrder : idx + 1,
+    const publishedAt = status === 'Published' ? new Date().toISOString() : null;
+    const formattedItems = items.map((it: any, idx: number) => ({
+      id: it.id || `item-${Date.now()}-${idx}`,
+      type: it.type || 'Feature',
+      description: it.description || '',
+      sortOrder: it.sortOrder || idx
     }));
 
-    if (memIdx !== -1) {
-      memoryReleaseNotes[memIdx] = {
-        ...memoryReleaseNotes[memIdx],
-        version: version.trim(),
-        title: title.trim(),
+    const pool = getPool();
+    await pool.query(
+      `UPDATE release_notes
+       SET version = $1, title = $2, release_date = $3, summary = $4,
+           status = $5, published_at = $6, updated_by = $7, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $8`,
+      [
+        version.trim(),
+        title.trim(),
         releaseDate,
-        summary: summary || '',
-        status: status || memoryReleaseNotes[memIdx].status,
+        summary || '',
+        status || 'Draft',
         publishedAt,
-        updatedBy: actorUserId || 'USR-ADMIN',
-        updatedByName: actorName || memoryReleaseNotes[memIdx].updatedByName,
-        updatedAt: nowIso,
-        items: formattedItems,
-      };
-    }
+        actorUserId || null,
+        id
+      ]
+    );
 
-    if (isDbConnected && dbPool) {
-      try {
-        await dbPool.query(
-          `UPDATE release_notes
-           SET version = $1, title = $2, release_date = $3, summary = $4,
-               status = $5, published_at = $6, updated_by = $7, updated_at = CURRENT_TIMESTAMP
-           WHERE id = $8`,
-          [
-            version.trim(),
-            title.trim(),
-            releaseDate,
-            summary || '',
-            status || 'Draft',
-            publishedAt,
-            actorUserId || null,
-            id
-          ]
-        );
-
-        // Replace items
-        await dbPool.query('DELETE FROM release_note_items WHERE release_id = $1', [id]);
-        for (const item of formattedItems) {
-          await dbPool.query(
-            `INSERT INTO release_note_items (id, release_id, type, description, sort_order)
-             VALUES ($1, $2, $3, $4, $5)`,
-            [item.id, id, item.type, item.description, item.sortOrder]
-          );
-        }
-      } catch (dbErr) {
-        console.warn('[DB Fallback: PUT /api/release-notes/:id]', dbErr instanceof Error ? dbErr.message : String(dbErr));
-      }
+    // Replace items
+    await pool.query('DELETE FROM release_note_items WHERE release_id = $1', [id]);
+    for (const item of formattedItems) {
+      await pool.query(
+        `INSERT INTO release_note_items (id, release_id, type, description, sort_order)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [item.id, id, item.type, item.description, item.sortOrder]
+      );
     }
 
     return res.json({
       success: true,
       message: `Release note updated successfully.`,
-      data: memIdx !== -1 ? memoryReleaseNotes[memIdx] : { id, version, title },
+      data: { id, version, title },
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -5755,37 +5456,16 @@ app.patch('/api/release-notes/:id/publish', async (req, res) => {
       return res.status(403).json({ success: false, error: 'Unauthorized: Only Administrators can publish or unpublish releases.' });
     }
 
-    const nowIso = new Date().toISOString();
-    const memIdx = memoryReleaseNotes.findIndex(r => r.id === id);
-
-    let publishedAt: string | null = null;
-    if (status === 'Published') {
-      publishedAt = (memIdx !== -1 && memoryReleaseNotes[memIdx].publishedAt) ? memoryReleaseNotes[memIdx].publishedAt : nowIso;
-    }
-
-    if (memIdx !== -1) {
-      memoryReleaseNotes[memIdx].status = status;
-      memoryReleaseNotes[memIdx].publishedAt = publishedAt;
-      memoryReleaseNotes[memIdx].updatedBy = actorUserId || 'USR-ADMIN';
-      memoryReleaseNotes[memIdx].updatedByName = actorName || 'System Administrator';
-      memoryReleaseNotes[memIdx].updatedAt = nowIso;
-    }
-
-    if (isDbConnected && dbPool) {
-      try {
-        await dbPool.query(
-          `UPDATE release_notes
-           SET status = $1,
-               published_at = CASE WHEN $1 = 'Published' AND published_at IS NULL THEN CURRENT_TIMESTAMP ELSE published_at END,
-               updated_by = $2,
-               updated_at = CURRENT_TIMESTAMP
-           WHERE id = $3`,
-          [status, actorUserId || null, id]
-        );
-      } catch (dbErr) {
-        console.warn('[DB Fallback: PATCH /api/release-notes/:id/publish]', dbErr instanceof Error ? dbErr.message : String(dbErr));
-      }
-    }
+    const pool = getPool();
+    await pool.query(
+      `UPDATE release_notes
+       SET status = $1,
+           published_at = CASE WHEN $1 = 'Published' AND published_at IS NULL THEN CURRENT_TIMESTAMP ELSE published_at END,
+           updated_by = $2,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $3`,
+      [status, actorUserId || null, id]
+    );
 
     return res.json({
       success: true,
@@ -5808,18 +5488,8 @@ app.delete('/api/release-notes/:id', async (req, res) => {
       return res.status(403).json({ success: false, error: 'Unauthorized: Only Administrators can delete release notes.' });
     }
 
-    const memIdx = memoryReleaseNotes.findIndex(r => r.id === id);
-    if (memIdx !== -1) {
-      memoryReleaseNotes.splice(memIdx, 1);
-    }
-
-    if (isDbConnected && dbPool) {
-      try {
-        await dbPool.query('DELETE FROM release_notes WHERE id = $1', [id]);
-      } catch (dbErr) {
-        console.warn('[DB Fallback: DELETE /api/release-notes/:id]', dbErr instanceof Error ? dbErr.message : String(dbErr));
-      }
-    }
+    const pool = getPool();
+    await pool.query('DELETE FROM release_notes WHERE id = $1', [id]);
 
     return res.json({ success: true, message: `Release note deleted successfully.` });
   } catch (err) {
@@ -5832,131 +5502,6 @@ app.delete('/api/release-notes/:id', async (req, res) => {
 // ============================================================================
 // MAINTENANCE ANNOUNCEMENTS & EMAIL REMINDERS ENGINE
 // ============================================================================
-
-// In-Memory Fallback State for Maintenance Announcements & Reminders
-const memoryMaintenanceAnnouncements: any[] = [
-  {
-    id: 'maint-2026-001',
-    title: 'Enterprise SAP ERP & Core Network Switch Infrastructure Upgrade',
-    maintenanceType: 'Network & Server Maintenance',
-    affectedSystem: 'SAP Production & MES Shop Floor Gateway',
-    description: 'Scheduled replacement of core distribution switches, fiber optic transceivers, and operating firmware patches across the primary datacenter rack.',
-    reason: 'Hardware end-of-life replacement and mandatory security vulnerability remediation.',
-    startDatetime: new Date(Date.now() + 3 * 24 * 3600 * 1000).toISOString(),
-    endDatetime: new Date(Date.now() + (3 * 24 + 4) * 3600 * 1000).toISOString(),
-    duration: '4 hours',
-    impact: 'Complete service downtime for SAP ERP, MES shop floor terminals, and local file storage.',
-    userAction: 'All users must save ongoing transactions and log out from SAP and MES before the maintenance window.',
-    workaround: 'Production lines may continue using paper batch traveler forms during the 4-hour window.',
-    itContact: 'Tanaka IT Operations Desk ext. 4321 / helpdesk@tanaka.com.my',
-    changeNumber: 'ITO-CR-2026-00088',
-    recipientGroup: 'TD_TEM',
-    status: 'Scheduled',
-    reminderSettings: {
-      initial: true,
-      threeDaysBefore: true,
-      oneDayBefore: true,
-      thirtyMinsBefore: true,
-      started: true,
-      completed: true,
-      cancelled: true,
-    },
-    createdBy: 'USR-ADMIN',
-    createdByName: 'System Administrator',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-];
-
-const memoryMaintenanceReminders: any[] = [
-  {
-    id: 'rem-001-init',
-    maintenanceId: 'maint-2026-001',
-    reminderType: 'initial',
-    scheduledTime: new Date().toISOString(),
-    status: 'Sent',
-    sentTime: new Date().toISOString(),
-    recipientGroup: 'TD_TEM',
-    recipientCount: 85,
-    templateUsed: 'maintenance_announcement_broadcast',
-  },
-  {
-    id: 'rem-001-3day',
-    maintenanceId: 'maint-2026-001',
-    reminderType: '3_days_before',
-    scheduledTime: new Date(Date.now() + 1 * 3600 * 1000).toISOString(),
-    status: 'Scheduled',
-    recipientGroup: 'TD_TEM',
-    recipientCount: 0,
-    templateUsed: 'maintenance_announcement_broadcast',
-  },
-  {
-    id: 'rem-001-1day',
-    maintenanceId: 'maint-2026-001',
-    reminderType: '1_day_before',
-    scheduledTime: new Date(Date.now() + 2 * 24 * 3600 * 1000).toISOString(),
-    status: 'Scheduled',
-    recipientGroup: 'TD_TEM',
-    recipientCount: 0,
-    templateUsed: 'maintenance_announcement_broadcast',
-  },
-  {
-    id: 'rem-001-30m',
-    maintenanceId: 'maint-2026-001',
-    reminderType: '30_mins_before',
-    scheduledTime: new Date(Date.now() + (3 * 24 * 3600 - 1800) * 1000).toISOString(),
-    status: 'Scheduled',
-    recipientGroup: 'TD_TEM',
-    recipientCount: 0,
-    templateUsed: 'maintenance_announcement_broadcast',
-  },
-  {
-    id: 'rem-001-start',
-    maintenanceId: 'maint-2026-001',
-    reminderType: 'started',
-    scheduledTime: new Date(Date.now() + 3 * 24 * 3600 * 1000).toISOString(),
-    status: 'Scheduled',
-    recipientGroup: 'TD_TEM',
-    recipientCount: 0,
-    templateUsed: 'maintenance_announcement_broadcast',
-  },
-  {
-    id: 'rem-001-comp',
-    maintenanceId: 'maint-2026-001',
-    reminderType: 'completed',
-    scheduledTime: new Date(Date.now() + (3 * 24 + 4) * 3600 * 1000).toISOString(),
-    status: 'Scheduled',
-    recipientGroup: 'TD_TEM',
-    recipientCount: 0,
-    templateUsed: 'maintenance_announcement_broadcast',
-  },
-  {
-    id: 'rem-001-canc',
-    maintenanceId: 'maint-2026-001',
-    reminderType: 'cancelled',
-    scheduledTime: null,
-    status: 'Scheduled',
-    recipientGroup: 'TD_TEM',
-    recipientCount: 0,
-    templateUsed: 'maintenance_announcement_broadcast',
-  },
-];
-
-const memoryMaintenanceEmailHistory: any[] = [
-  {
-    id: 'hist-001-init',
-    maintenanceId: 'maint-2026-001',
-    reminderType: 'initial',
-    recipientGroup: 'TD_TEM',
-    recipientCount: 85,
-    scheduledTime: new Date().toISOString(),
-    sentTime: new Date().toISOString(),
-    status: 'Sent',
-    templateUsed: 'maintenance_announcement_broadcast',
-    subject: '[INITIAL ANNOUNCEMENT] Scheduled IT Maintenance: SAP Production & MES Shop Floor Gateway',
-    createdAt: new Date().toISOString(),
-  },
-];
 
 // Helper: Calculate duration between start & end
 function calculateMaintenanceDurationHelper(start: string | Date, end: string | Date): string {
@@ -6248,6 +5793,372 @@ async function dispatchMaintenanceEmailViaSmtp(options: {
   }
 }
 
+// ==========================================
+// 8. MANAGEMENT DASHBOARD & ANALYTICS API
+// ==========================================
+
+app.get('/api/management/stats', async (req, res) => {
+  if (!isDbConnected) return res.status(503).json({ error: 'Database not connected' });
+
+  try {
+    const pool = getPool();
+    
+    // 1. Staff Performance Matrix
+    const staffMatrixQuery = `
+      SELECT 
+        it_assigned_developer_name as "staffName",
+        COUNT(*) as "totalCases",
+        COUNT(*) FILTER (WHERE status = 'Closed (Completed)') as "completed",
+        COUNT(*) FILTER (WHERE status = 'Closed (Rejected)') as "rejected",
+        COUNT(*) FILTER (WHERE status = 'In Progress' OR status = 'Pending IT Verification') as "inProgress",
+        COUNT(*) FILTER (WHERE status = 'Returned to Requester') as "returned",
+        SUM(workload_points) as "totalPoints",
+        ROUND(
+          (COUNT(*) FILTER (WHERE status = 'Closed (Completed)' AND (EXTRACT(EPOCH FROM (actual_completion_date - created_at))/3600) <= sla_target_hours)::numeric / 
+          NULLIF(COUNT(*) FILTER (WHERE status = 'Closed (Completed)'), 0)::numeric) * 100, 1
+        ) as "slaCompliancePercent"
+      FROM change_requests
+      WHERE it_assigned_developer_name IS NOT NULL
+      GROUP BY it_assigned_developer_name
+      ORDER BY it_assigned_developer_name ASC
+    `;
+    const staffRes = await pool.query(staffMatrixQuery);
+
+    // 2. SLA Audit (Breached Cases)
+    const slaAuditQuery = `
+      SELECT 
+        id, title, requester_name as "requesterName", priority, 
+        it_assigned_developer_name as "staffName", status,
+        sla_target_hours as "targetHours",
+        ROUND(EXTRACT(EPOCH FROM (COALESCE(actual_completion_date, NOW()) - created_at))/3600, 1) as "actualHours"
+      FROM change_requests
+      WHERE status = 'Closed (Completed)' 
+        AND (EXTRACT(EPOCH FROM (actual_completion_date - created_at))/3600) > sla_target_hours
+      ORDER BY (EXTRACT(EPOCH FROM (actual_completion_date - created_at))/3600) DESC
+      LIMIT 10
+    `;
+    const slaAuditRes = await pool.query(slaAuditQuery);
+
+    // 3. Delegation Audit
+    const delegationAuditQuery = `
+      SELECT 
+        d.id, d.hod_name as "hodName", d.delegate_name as "delegateName", 
+        d.start_date as "startDate", d.end_date as "endDate", d.reason, d.status,
+        (SELECT COUNT(*) FROM change_request_approval_history h 
+         WHERE h.actor_user_id = d.delegate_user_id AND h.action_date BETWEEN d.start_date AND d.end_date) as "actionsTaken"
+      FROM temporary_approver_delegations d
+      ORDER BY d.created_at DESC
+      LIMIT 20
+    `;
+    const delegationRes = await pool.query(delegationAuditQuery);
+
+    // 4. Global KPIs
+    const kpiRes = await pool.query(`
+      SELECT 
+        COUNT(*) as "totalCr",
+        COUNT(*) FILTER (WHERE status = 'In Progress') as "activeCr",
+        ROUND(AVG(EXTRACT(EPOCH FROM (actual_completion_date - created_at))/3600)::numeric, 1) as "avgTurnaroundHours"
+      FROM change_requests
+      WHERE status = 'Closed (Completed)'
+    `);
+
+    res.json({
+      staffMatrix: staffRes.rows,
+      slaAudit: slaAuditRes.rows,
+      delegationAudit: delegationRes.rows,
+      kpis: kpiRes.rows[0]
+    });
+
+  } catch (err) {
+    console.error('[Management Stats Error]', err);
+    res.status(500).json({ error: 'Failed to fetch management statistics' });
+  }
+});
+
+// 5. Staff Workload Points Detail
+app.get('/api/management/workload-points', async (req, res) => {
+  if (!isDbConnected) return res.status(503).json({ error: 'Database not connected' });
+
+  try {
+    const pool = getPool();
+    const query = `
+      SELECT 
+        it_assigned_developer_name as "staffName",
+        priority,
+        COUNT(*) as "caseCount",
+        SUM(workload_points) as "points"
+      FROM change_requests
+      WHERE status NOT IN ('Closed (Completed)', 'Closed (Rejected)', 'Draft')
+        AND it_assigned_developer_name IS NOT NULL
+      GROUP BY it_assigned_developer_name, priority
+      ORDER BY it_assigned_developer_name ASC, points DESC
+    `;
+    const result = await pool.query(query);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch workload points' });
+  }
+});
+
+// ==========================================
+// 8. AUTOMATED SLA CHASE POLICY ENGINE (3-STRIKE RULE)
+// ==========================================
+
+let isSlaReminderEngineRunning = false;
+
+/**
+ * Background Task: Periodically scans for stalled requests awaiting requester response
+ * and dispatches automatic reminders (Friendly, Urgent, Final Notice) or performs auto-withdrawal.
+ */
+async function checkAndProcessSLAReminders(): Promise<void> {
+  if (isSlaReminderEngineRunning || !isDbConnected) return;
+  isSlaReminderEngineRunning = true;
+
+  try {
+    const pool = getPool();
+    
+    // Select cases that are 'Returned to Requester' (SLA is paused) and not yet closed/withdrawn
+    const query = `
+      SELECT cr.id, cr.title, cr.requester_name as "requesterName", cr.requester_email as "requesterEmail",
+             cr.status, cr.sla_paused_at as "slaPausedAt", cr.reminder_count as "reminderCount",
+             cr.department_id as "departmentId", cr.department_name as "departmentName",
+             cr.target_hod_email as "targetHodEmail", cr.target_hod_name as "targetHodName"
+      FROM change_requests cr
+      WHERE cr.sla_paused_at IS NOT NULL
+        AND cr.status = 'Returned to Requester'
+        AND cr.is_auto_closed_inactive IS FALSE
+      ORDER BY cr.sla_paused_at ASC
+    `;
+    const res = await pool.query(query);
+
+    for (const cr of res.rows) {
+      const pausedAt = new Date(cr.slaPausedAt);
+      const now = new Date();
+      const diffDays = Math.floor((now.getTime() - pausedAt.getTime()) / (1000 * 3600 * 24));
+      
+      let targetStage: number = 0;
+      let nudgeMessage = '';
+      let isFinalNotice = false;
+      let shouldAutoWithdraw = false;
+
+      // Logic:
+      // Day 2+ -> Stage 1 (Friendly)
+      // Day 4+ -> Stage 2 (Urgent + CC HOD)
+      // Day 7+ -> Stage 3 (Final 48h Warning + CC HOD)
+      // Day 9+ -> Auto-Withdraw (Only if Stage 3 was reached)
+      
+      if (diffDays >= 9 && cr.reminderCount >= 3) {
+        shouldAutoWithdraw = true;
+      } else if (diffDays >= 7 && cr.reminderCount < 3) {
+        targetStage = 3;
+        nudgeMessage = 'This is a FINAL NOTICE. Your request has been inactive for 7+ days. If no action is taken within 48 hours, this ticket will be automatically withdrawn.';
+        isFinalNotice = true;
+      } else if (diffDays >= 4 && cr.reminderCount < 2) {
+        targetStage = 2;
+        nudgeMessage = 'This is an URGENT reminder. Your IT request is currently stalled awaiting your technical details or clarification. Please respond to avoid auto-withdrawal.';
+      } else if (diffDays >= 2 && cr.reminderCount < 1) {
+        targetStage = 1;
+        nudgeMessage = 'This is a friendly reminder that we are still awaiting your response for clarification on your IT request. The SLA timer is currently paused.';
+      }
+
+      if (shouldAutoWithdraw) {
+        console.log(`[SLA Engine] Auto-withdrawing inactive CR ${cr.id} (Paused since ${cr.slaPausedAt})`);
+        
+        await pool.query('BEGIN');
+        try {
+          // 1. Update CR status
+          await pool.query(
+            `UPDATE change_requests SET 
+              status = 'Closed (Rejected)',
+              is_auto_closed_inactive = TRUE,
+              withdrawn_at = NOW(),
+              withdrawn_reason = 'Auto-withdrawn due to 9+ days of inactivity and no response to 3-stage chase reminders.',
+              updated_at = NOW()
+             WHERE id = $1`,
+            [cr.id]
+          );
+
+          // 2. Add History Entry
+          await pool.query(
+            `INSERT INTO change_request_approval_history 
+             (change_request_id, actor_user_id, actor_name, actor_role, action_date, from_status, to_status, decision, comments)
+             VALUES ($1, 'system', 'SLA Policy Engine', 'System Workflow', NOW(), 'Returned to Requester', 'Closed (Rejected)', 'Auto-Withdrawn', $2)`,
+            [cr.id, 'Ticket closed automatically due to inactivity policy (3-Strike Rule).']
+          );
+
+          // 3. Send Final Email
+          await dispatchSlaChaseEmail({
+            cr,
+            stageLabel: 'AUTO-WITHDRAWAL',
+            subject: `[POLICY] Change Request Withdrawn: Inactivity Timeout (${cr.id})`,
+            message: `Your IT Change Request <strong>${cr.id}</strong> has been automatically withdrawn because it remained in a clarification state for over 7 business days without a response. You may reopen this request at any time via the portal if you still require assistance.`,
+            ccHod: true
+          });
+
+          await pool.query('COMMIT');
+        } catch (txErr) {
+          await pool.query('ROLLBACK');
+          console.error(`[SLA Engine Error] Transaction failed for auto-withdrawal of ${cr.id}:`, txErr);
+        }
+      } else if (targetStage > 0) {
+        console.log(`[SLA Engine] Sending Stage ${targetStage} reminder for CR ${cr.id} (Day ${diffDays})`);
+        
+        const stageName = targetStage === 1 ? 'Friendly Nudge' : targetStage === 2 ? 'Urgent Follow-Up' : 'Final Notice';
+        
+        await pool.query('BEGIN');
+        try {
+          // 1. Update CR reminder count
+          await pool.query(
+            `UPDATE change_requests SET 
+              reminder_count = $2,
+              last_reminder_sent_at = NOW(),
+              last_reminder_stage = $2,
+              updated_at = NOW()
+             WHERE id = $1`,
+            [cr.id, targetStage]
+          );
+
+          // 2. Add History Entry
+          await pool.query(
+            `INSERT INTO change_request_approval_history 
+             (change_request_id, actor_user_id, actor_name, actor_role, action_date, from_status, to_status, decision, comments)
+             VALUES ($1, 'system', 'SLA Policy Engine', 'System Workflow', NOW(), 'Returned to Requester', 'Returned to Requester', 'Reminder Sent', $2)`,
+            [cr.id, `Automated ${stageName} (Stage ${targetStage}) dispatched by SLA Engine.`]
+          );
+
+          // 3. Send Email
+          await dispatchSlaChaseEmail({
+            cr,
+            stageLabel: `SLA CHASE STAGE ${targetStage}`,
+            subject: `[REMINDER] Action Required: IT Request Clarification Needed (${cr.id})`,
+            message: nudgeMessage,
+            ccHod: targetStage >= 2
+          });
+
+          await pool.query('COMMIT');
+        } catch (txErr) {
+          await pool.query('ROLLBACK');
+          console.error(`[SLA Engine Error] Transaction failed for reminder Stage ${targetStage} of ${cr.id}:`, txErr);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[SLA Reminder Engine Error]', err instanceof Error ? err.message : String(err));
+  } finally {
+    isSlaReminderEngineRunning = false;
+  }
+}
+
+/**
+ * Helper: Formats and dispatches the SLA Chase Policy emails via SMTP Relay.
+ */
+async function dispatchSlaChaseEmail(options: {
+  cr: any;
+  stageLabel: string;
+  subject: string;
+  message: string;
+  ccHod?: boolean;
+}): Promise<void> {
+  const { cr, stageLabel, subject, message, ccHod } = options;
+
+  let smtpHost = '157.9.183.242';
+  let smtpPort = 25;
+  let fromAddress = 'Administrator@tanaka.com.my';
+  let fromName = 'Tanaka IT Operations Relay';
+
+  try {
+    const pool = getPool();
+    const smtpRes = await pool.query(`SELECT key_value FROM system_configurations WHERE key_name = 'smtp_settings' LIMIT 1`);
+    if (smtpRes.rows.length > 0 && smtpRes.rows[0].key_value) {
+      const val = typeof smtpRes.rows[0].key_value === 'string' ? JSON.parse(smtpRes.rows[0].key_value) : smtpRes.rows[0].key_value;
+      if (val.host) smtpHost = val.host;
+      if (val.port) smtpPort = Number(val.port);
+      if (val.fromAddress) fromAddress = val.fromAddress;
+      if (val.fromName) fromName = val.fromName;
+    }
+  } catch (dbErr) {
+    console.warn('[DB Notice: dispatchSlaChaseEmail reading config]', dbErr);
+  }
+
+  const transporter = createSmtpTransporter({ host: smtpHost, port: smtpPort });
+  
+  const recipientEmail = ccHod && cr.targetHodEmail 
+    ? `${cr.requesterEmail}, ${cr.targetHodEmail}` 
+    : cr.requesterEmail;
+
+  const bodyHtml = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; background-color: #ffffff;">
+      <div style="background-color: #0f172a; color: #ffffff; padding: 20px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+          <span style="background-color: #2563eb; color: #ffffff; font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 4px; text-transform: uppercase;">
+            IT OPERATIONS CHASE POLICY
+          </span>
+          <span style="background-color: #f59e0b; color: #000000; font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 4px; text-transform: uppercase;">
+            ${stageLabel}
+          </span>
+        </div>
+        <h2 style="margin: 0; font-size: 16px; color: #ffffff;">${subject}</h2>
+      </div>
+      <div style="padding: 24px; color: #334155; line-height: 1.6; font-size: 14px;">
+        <p>Dear <strong>${cr.requesterName}</strong>,</p>
+        <p>${message}</p>
+        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 20px 0;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+            <tr><td style="padding: 4px 0; color: #64748b; width: 140px; font-weight: bold;">Request ID:</td><td style="font-weight: bold; color: #0f172a;">${cr.id}</td></tr>
+            <tr><td style="padding: 4px 0; color: #64748b; font-weight: bold;">Title:</td><td>${cr.title}</td></tr>
+            <tr><td style="padding: 4px 0; color: #64748b; font-weight: bold;">Status:</td><td style="color: #dc2626; font-weight: bold;">SLA PAUSED (Waiting on You)</td></tr>
+            <tr><td style="padding: 4px 0; color: #64748b; font-weight: bold;">Paused At:</td><td>${cr.slaPausedAt ? new Date(cr.slaPausedAt).toLocaleString('en-GB') : '-'} (MYT)</td></tr>
+          </table>
+        </div>
+        <p style="font-size: 13px;">Please log in to the <strong>IT Operations Portal</strong> to provide the requested details so we can resume work on your request.</p>
+        <div style="text-align: center; margin-top: 30px;">
+          <a href="http://157.9.183.59:3000" style="background-color: #0f172a; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-size: 14px; font-weight: bold; display: inline-block;">
+            Open IT Portal & Respond
+          </a>
+        </div>
+      </div>
+      <div style="padding: 16px; background-color: #f1f5f9; text-align: center; font-size: 11px; color: #64748b; border-top: 1px solid #e2e8f0;">
+        This is an automated policy notification. Please do not reply to this email directly.
+      </div>
+    </div>
+  `;
+
+  try {
+    await transporter.sendMail({
+      from: `"${fromName}" <${fromAddress}>`,
+      to: recipientEmail,
+      subject: subject,
+      html: bodyHtml
+    });
+    
+    // Log to email history
+    const pool = getPool();
+    await pool.query(
+      `INSERT INTO email_notification_logs (change_request_id, recipient_email, recipient_name, subject, body_html, sent_at, status, trigger_event)
+       VALUES ($1, $2, $3, $4, $5, NOW(), 'DELIVERED', $6)`,
+      [cr.id, recipientEmail, cr.requesterName, subject, bodyHtml, `Automated SLA Chase (${stageLabel})`]
+    );
+  } catch (err) {
+    console.error(`[SLA Engine Email Error] Failed to send ${stageLabel} to ${recipientEmail}:`, err);
+  }
+}
+
+let slaReminderSchedulerInterval: NodeJS.Timeout | null = null;
+function startSLAReminderScheduler() {
+  if (slaReminderSchedulerInterval) return;
+  console.log('[SLA Engine] Initializing automated 3-strike chase policy scheduler (interval: 1h)...');
+  
+  // Run once on startup after 30 seconds
+  setTimeout(() => {
+    checkAndProcessSLAReminders().catch(console.error);
+  }, 30000);
+  
+  // Recurring every 1 hour
+  slaReminderSchedulerInterval = setInterval(() => {
+    checkAndProcessSLAReminders().catch(console.error);
+  }, 3600000); 
+}
+
 // Background Task: Check and send due maintenance reminders every 60 seconds
 let isSchedulerRunning = false;
 async function checkAndSendDueMaintenanceReminders(): Promise<void> {
@@ -6381,43 +6292,6 @@ async function checkAndSendDueMaintenanceReminders(): Promise<void> {
           );
         }
       }
-    } else {
-      // Memory fallback check
-      const dueReminders = memoryMaintenanceReminders.filter(
-        r => r.status === 'Scheduled' && r.scheduledTime && new Date(r.scheduledTime) <= now
-      );
-      for (const rem of dueReminders) {
-        const ann = memoryMaintenanceAnnouncements.find(a => a.id === rem.maintenanceId);
-        if (!ann || ann.status === 'Cancelled' || ann.status === 'Completed') continue;
-
-        rem.status = 'Sending';
-        const dispatchResult = await dispatchMaintenanceEmailViaSmtp({
-          announcement: ann,
-          reminderType: rem.reminderType,
-          recipientEmail: 'TD_TEM@tanaka.com.my',
-          recipientGroup: rem.recipientGroup || 'TD_TEM',
-        });
-
-        rem.status = dispatchResult.success ? 'Sent' : 'Failed';
-        rem.sentTime = new Date().toISOString();
-        rem.recipientCount = 85;
-        if (!dispatchResult.success) rem.errorMessage = dispatchResult.error;
-
-        memoryMaintenanceEmailHistory.unshift({
-          id: `hist-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
-          maintenanceId: rem.maintenanceId,
-          reminderType: rem.reminderType,
-          recipientGroup: rem.recipientGroup || 'TD_TEM',
-          recipientCount: 85,
-          scheduledTime: rem.scheduledTime,
-          sentTime: new Date().toISOString(),
-          status: dispatchResult.success ? 'Sent' : 'Failed',
-          errorMessage: dispatchResult.error,
-          templateUsed: 'maintenance_announcement_broadcast',
-          subject: dispatchResult.subject,
-          createdAt: new Date().toISOString(),
-        });
-      }
     }
   } catch (err) {
     console.error('[Maintenance Scheduler Error]', err instanceof Error ? err.message : String(err));
@@ -6549,16 +6423,6 @@ app.get('/api/maintenance-announcements', async (req, res) => {
       }
     }
 
-    if (announcements.length === 0) {
-      announcements = memoryMaintenanceAnnouncements
-        .filter(a => !status || status === 'All' || a.status === status)
-        .map(a => ({
-          ...a,
-          reminders: memoryMaintenanceReminders.filter(r => r.maintenanceId === a.id),
-        }))
-        .sort((a, b) => new Date(b.startDatetime).getTime() - new Date(a.startDatetime).getTime());
-    }
-
     return res.json({ success: true, data: announcements });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -6600,16 +6464,6 @@ app.get('/api/maintenance-announcements/:id', async (req, res) => {
         }
       } catch (dbErr) {
         console.warn('[DB Fallback: GET /api/maintenance-announcements/:id]', dbErr instanceof Error ? dbErr.message : String(dbErr));
-      }
-    }
-
-    if (!announcement) {
-      const mem = memoryMaintenanceAnnouncements.find(a => a.id === id);
-      if (mem) {
-        announcement = {
-          ...mem,
-          reminders: memoryMaintenanceReminders.filter(r => r.maintenanceId === id),
-        };
       }
     }
 
@@ -6797,28 +6651,6 @@ app.post('/api/maintenance-announcements', async (req, res) => {
       }
     }
 
-    // Memory fallback update
-    memoryMaintenanceAnnouncements.unshift(newAnnouncement);
-    for (const plan of reminderPlans) {
-      const remId = `rem-${id}-${plan.type}`;
-      let remStatus = 'Scheduled';
-      if (!plan.enabled) remStatus = 'Cancelled';
-      else if (plan.type !== 'initial' && plan.scheduledTime && plan.scheduledTime < now) remStatus = 'Skipped';
-
-      const remObj = {
-        id: remId,
-        maintenanceId: id,
-        reminderType: plan.type,
-        scheduledTime: plan.scheduledTime ? plan.scheduledTime.toISOString() : null,
-        status: remStatus,
-        recipientGroup,
-        recipientCount: 0,
-        templateUsed: 'maintenance_announcement_broadcast',
-      };
-      memoryMaintenanceReminders.unshift(remObj);
-      if (!isDbConnected) createdReminders.push(remObj);
-    }
-
     return res.status(201).json({
       success: true,
       message: 'Maintenance announcement created and reminder schedules configured.',
@@ -6938,47 +6770,6 @@ app.put('/api/maintenance-announcements/:id', async (req, res) => {
         }
       } catch (dbErr) {
         console.warn('[DB Fallback: PUT /api/maintenance-announcements/:id]', dbErr instanceof Error ? dbErr.message : String(dbErr));
-      }
-    }
-
-    // Memory fallback
-    const memIdx = memoryMaintenanceAnnouncements.findIndex(a => a.id === id);
-    if (memIdx !== -1) {
-      memoryMaintenanceAnnouncements[memIdx] = {
-        ...memoryMaintenanceAnnouncements[memIdx],
-        title: title || memoryMaintenanceAnnouncements[memIdx].title,
-        maintenanceType: maintenanceType || memoryMaintenanceAnnouncements[memIdx].maintenanceType,
-        affectedSystem: affectedSystem || memoryMaintenanceAnnouncements[memIdx].affectedSystem,
-        description: description !== undefined ? description : memoryMaintenanceAnnouncements[memIdx].description,
-        reason: reason !== undefined ? reason : memoryMaintenanceAnnouncements[memIdx].reason,
-        startDatetime: startDatetime || memoryMaintenanceAnnouncements[memIdx].startDatetime,
-        endDatetime: endDatetime || memoryMaintenanceAnnouncements[memIdx].endDatetime,
-        duration: duration || memoryMaintenanceAnnouncements[memIdx].duration,
-        impact: impact !== undefined ? impact : memoryMaintenanceAnnouncements[memIdx].impact,
-        userAction: userAction !== undefined ? userAction : memoryMaintenanceAnnouncements[memIdx].userAction,
-        workaround: workaround !== undefined ? workaround : memoryMaintenanceAnnouncements[memIdx].workaround,
-        itContact: itContact || memoryMaintenanceAnnouncements[memIdx].itContact,
-        changeNumber: changeNumber !== undefined ? changeNumber : memoryMaintenanceAnnouncements[memIdx].changeNumber,
-        recipientGroup: recipientGroup || memoryMaintenanceAnnouncements[memIdx].recipientGroup,
-        status: status || memoryMaintenanceAnnouncements[memIdx].status,
-        reminderSettings: reminderSettings || memoryMaintenanceAnnouncements[memIdx].reminderSettings,
-        updatedBy: actorUserId,
-        updatedByName: actorName,
-        updatedAt: nowIso,
-      };
-      if (!updatedRecord) updatedRecord = memoryMaintenanceAnnouncements[memIdx];
-
-      // Update memory reminders
-      if (startDatetime && endDatetime) {
-        const plans = computeReminderSchedulesHelper(startDatetime, endDatetime, reminderSettings || updatedRecord.reminderSettings);
-        for (const plan of plans) {
-          if (plan.type === 'initial') continue;
-          const rem = memoryMaintenanceReminders.find(r => r.maintenanceId === id && r.reminderType === plan.type && r.status === 'Scheduled');
-          if (rem) {
-            rem.scheduledTime = plan.scheduledTime ? plan.scheduledTime.toISOString() : null;
-            if (!plan.enabled) rem.status = 'Cancelled';
-          }
-        }
       }
     }
 
@@ -7116,24 +6907,6 @@ app.patch('/api/maintenance-announcements/:id/status', async (req, res) => {
       }
     }
 
-    // Memory fallback
-    const memIdx = memoryMaintenanceAnnouncements.findIndex(a => a.id === id);
-    if (memIdx !== -1) {
-      memoryMaintenanceAnnouncements[memIdx].status = status;
-      memoryMaintenanceAnnouncements[memIdx].updatedBy = actorUserId;
-      memoryMaintenanceAnnouncements[memIdx].updatedByName = actorName;
-      memoryMaintenanceAnnouncements[memIdx].updatedAt = nowIso;
-      if (!announcement) announcement = memoryMaintenanceAnnouncements[memIdx];
-
-      if (status === 'Cancelled') {
-        memoryMaintenanceReminders
-          .filter(r => r.maintenanceId === id && r.status === 'Scheduled')
-          .forEach(r => {
-            r.status = 'Cancelled';
-          });
-      }
-    }
-
     return res.json({
       success: true,
       message: `Maintenance status transitioned to ${status}.`,
@@ -7150,17 +6923,8 @@ app.delete('/api/maintenance-announcements/:id', async (req, res) => {
   try {
     const { id } = req.params;
 
-    if (isDbConnected) {
-      try {
-        const pool = getPool();
-        await pool.query(`DELETE FROM maintenance_announcements WHERE id = $1`, [id]);
-      } catch (dbErr) {
-        console.warn('[DB Fallback: DELETE /api/maintenance-announcements/:id]', dbErr instanceof Error ? dbErr.message : String(dbErr));
-      }
-    }
-
-    const memIdx = memoryMaintenanceAnnouncements.findIndex(a => a.id === id);
-    if (memIdx !== -1) memoryMaintenanceAnnouncements.splice(memIdx, 1);
+    const pool = getPool();
+    await pool.query(`DELETE FROM maintenance_announcements WHERE id = $1`, [id]);
 
     return res.json({ success: true, message: 'Maintenance announcement deleted successfully.' });
   } catch (err) {
@@ -7226,8 +6990,6 @@ app.post('/api/maintenance-announcements/test-email', async (req, res) => {
       }
     }
 
-    memoryMaintenanceEmailHistory.unshift(logItem);
-
     if (!dispatchResult.success) {
       return res.status(502).json({
         success: false,
@@ -7253,66 +7015,41 @@ app.post('/api/maintenance-announcements/:id/trigger-reminder', async (req, res)
     const { id } = req.params;
     const { reminderType = 'initial' } = req.body;
 
-    let announcement: any = null;
-    if (isDbConnected) {
-      try {
-        const pool = getPool();
-        const annRes = await pool.query(`SELECT * FROM maintenance_announcements WHERE id = $1 LIMIT 1`, [id]);
-        if (annRes.rows.length > 0) announcement = annRes.rows[0];
-      } catch (dbErr) {
-        console.warn('[DB Notice: trigger reminder]', dbErr instanceof Error ? dbErr.message : String(dbErr));
-      }
-    }
-    if (!announcement) {
-      announcement = memoryMaintenanceAnnouncements.find(a => a.id === id);
-    }
-    if (!announcement) {
+    const pool = getPool();
+    const annRes = await pool.query(`SELECT * FROM maintenance_announcements WHERE id = $1 LIMIT 1`, [id]);
+    if (annRes.rows.length === 0) {
       return res.status(404).json({ success: false, error: 'Maintenance announcement not found.' });
     }
+    const announcement = annRes.rows[0];
 
     const recipientEmail = 'TD_TEM@tanaka.com.my';
     const dispatchResult = await dispatchMaintenanceEmailViaSmtp({
       announcement,
       reminderType,
       recipientEmail,
-      recipientGroup: announcement.recipient_group || announcement.recipientGroup || 'TD_TEM',
+      recipientGroup: announcement.maintenance_type || 'TD_TEM',
     });
 
     const histId = `hist-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
-    if (isDbConnected) {
-      try {
-        const pool = getPool();
-        await pool.query(
-          `UPDATE maintenance_reminders SET status = 'Sent', sent_time = NOW(), recipient_count = 85, updated_at = NOW() 
-           WHERE maintenance_id = $1 AND reminder_type = $2`,
-          [id, reminderType]
-        );
-        await pool.query(
-          `INSERT INTO maintenance_email_history (id, maintenance_id, reminder_type, recipient_group, recipient_count, scheduled_time, sent_time, status, error_message, template_used, subject, body_html)
-           VALUES ($1, $2, $3, $4, 85, NOW(), NOW(), $5, $6, 'maintenance_announcement_broadcast', $7, $8)`,
-          [
-            histId,
-            id,
-            reminderType,
-            announcement.recipient_group || announcement.recipientGroup || 'TD_TEM',
-            dispatchResult.success ? 'Sent' : 'Failed',
-            dispatchResult.error || null,
-            dispatchResult.subject,
-            dispatchResult.html,
-          ]
-        );
-      } catch (dbErr) {
-        console.warn('[DB Notice: trigger reminder db update]', dbErr instanceof Error ? dbErr.message : String(dbErr));
-      }
-    }
-
-    const memRem = memoryMaintenanceReminders.find(r => r.maintenanceId === id && r.reminderType === reminderType);
-    if (memRem) {
-      memRem.status = dispatchResult.success ? 'Sent' : 'Failed';
-      memRem.sentTime = new Date().toISOString();
-      memRem.recipientCount = 85;
-      if (!dispatchResult.success) memRem.errorMessage = dispatchResult.error;
-    }
+    await pool.query(
+      `UPDATE maintenance_reminders SET status = 'Sent', sent_time = NOW(), recipient_count = 85, updated_at = NOW() 
+       WHERE maintenance_id = $1 AND reminder_type = $2`,
+      [id, reminderType]
+    );
+    await pool.query(
+      `INSERT INTO maintenance_email_history (id, maintenance_id, reminder_type, recipient_group, recipient_count, scheduled_time, sent_time, status, error_message, template_used, subject, body_html)
+       VALUES ($1, $2, $3, $4, 85, NOW(), NOW(), $5, $6, 'maintenance_announcement_broadcast', $7, $8)`,
+      [
+        histId,
+        id,
+        reminderType,
+        announcement.recipient_group || announcement.recipientGroup || 'TD_TEM',
+        dispatchResult.success ? 'Sent' : 'Failed',
+        dispatchResult.error || null,
+        dispatchResult.subject,
+        dispatchResult.html,
+      ]
+    );
 
     if (!dispatchResult.success) {
       return res.status(502).json({ success: false, error: `SMTP Dispatch Error: ${dispatchResult.error}` });
@@ -7334,51 +7071,31 @@ app.get('/api/maintenance-email-history', async (req, res) => {
     const { maintenanceId, status } = req.query;
     let history: any[] = [];
 
-    if (isDbConnected) {
-      try {
-        const pool = getPool();
-        let query = `
-          SELECT meh.id, meh.maintenance_id as "maintenanceId", meh.reminder_type as "reminderType",
-                 meh.recipient_group as "recipientGroup", meh.recipient_count as "recipientCount",
-                 meh.scheduled_time as "scheduledTime", meh.sent_time as "sentTime", meh.status,
-                 meh.error_message as "errorMessage", meh.template_used as "templateUsed",
-                 meh.subject, meh.created_at as "createdAt",
-                 ma.title as "announcementTitle", ma.affected_system as "affectedSystem"
-          FROM maintenance_email_history meh
-          LEFT JOIN maintenance_announcements ma ON meh.maintenance_id = ma.id
-          WHERE 1=1
-        `;
-        const params: any[] = [];
-        if (maintenanceId && typeof maintenanceId === 'string') {
-          params.push(maintenanceId);
-          query += ` AND meh.maintenance_id = $${params.length}`;
-        }
-        if (status && typeof status === 'string' && status !== 'All') {
-          params.push(status);
-          query += ` AND meh.status = $${params.length}`;
-        }
-        query += ` ORDER BY meh.sent_time DESC LIMIT 100`;
-
-        const dbRes = await pool.query(query, params);
-        history = dbRes.rows || [];
-      } catch (dbErr) {
-        console.warn('[DB Fallback: GET /api/maintenance-email-history]', dbErr instanceof Error ? dbErr.message : String(dbErr));
-      }
+    const pool = getPool();
+    let query = `
+      SELECT meh.id, meh.maintenance_id as "maintenanceId", meh.reminder_type as "reminderType",
+             meh.recipient_group as "recipientGroup", meh.recipient_count as "recipientCount",
+             meh.scheduled_time as "scheduledTime", meh.sent_time as "sentTime", meh.status,
+             meh.error_message as "errorMessage", meh.template_used as "templateUsed",
+             meh.subject, meh.created_at as "createdAt",
+             ma.title as "announcementTitle", ma.affected_system as "affectedSystem"
+      FROM maintenance_email_history meh
+      LEFT JOIN maintenance_announcements ma ON meh.maintenance_id = ma.id
+      WHERE 1=1
+    `;
+    const params: any[] = [];
+    if (maintenanceId && typeof maintenanceId === 'string') {
+      params.push(maintenanceId);
+      query += ` AND meh.maintenance_id = $${params.length}`;
     }
-
-    if (history.length === 0) {
-      history = memoryMaintenanceEmailHistory
-        .filter(h => (!maintenanceId || h.maintenanceId === maintenanceId) && (!status || status === 'All' || h.status === status))
-        .map(h => {
-          const ann = memoryMaintenanceAnnouncements.find(a => a.id === h.maintenanceId);
-          return {
-            ...h,
-            announcementTitle: ann ? ann.title : 'IT Maintenance Notice',
-            affectedSystem: ann ? ann.affectedSystem : 'Tanaka Core Systems',
-          };
-        })
-        .sort((a, b) => new Date(b.sentTime).getTime() - new Date(a.sentTime).getTime());
+    if (status && typeof status === 'string' && status !== 'All') {
+      params.push(status);
+      query += ` AND meh.status = $${params.length}`;
     }
+    query += ` ORDER BY meh.sent_time DESC LIMIT 100`;
+
+    const dbRes = await pool.query(query, params);
+    history = dbRes.rows || [];
 
     return res.json({ success: true, data: history });
   } catch (err) {
@@ -7408,6 +7125,9 @@ async function startServer() {
 
   // Start automated Maintenance Reminder background task runner (every 60s)
   startMaintenanceScheduler();
+
+  // Start automated SLA Chase Policy background task runner (every 1h)
+  startSLAReminderScheduler();
 
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({

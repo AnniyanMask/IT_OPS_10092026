@@ -128,7 +128,7 @@ export function createWelcomeAccountEmail(
     smtpServer: smtpConfig.smtpServer,
     smtpPort: smtpConfig.smtpPort,
     status: 'DELIVERED (250 OK)',
-    triggerEvent: `User Provisioned: ${user.fullName} (${user.role}) - Account Activated`,
+    triggerEvent: `User Provisioned: ${user.fullName} - Account Activated`,
   };
 }
 
@@ -300,7 +300,7 @@ export function createStateTransitionEmail(
   </div>
   <div style="padding: 24px;">
     <p style="font-size: 14px; color: #334155; margin-top: 0;">Dear <strong>${recipName}</strong>,</p>
-    <p style="font-size: 13px; color: #475569;">The IT OPS Request <strong>${crId}</strong> has transitioned into a new workflow status by <strong>${actName}</strong> (${actRole}).</p>
+    <p style="font-size: 13px; color: #475569;">The IT OPS Request <strong>${crId}</strong> has transitioned into a new workflow status by <strong>${actName}</strong>.</p>
 
     <!-- State Transition Banner -->
     <div style="background-color: #f8fafc; border-left: 4px solid ${statusBadgeColor}; border-top: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; border-radius: 6px; padding: 14px; margin: 16px 0;">
@@ -652,7 +652,7 @@ export function createTemporaryApproverAssignedEmail(
   return {
     id: `em-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
     recipientEmail: `${delegation.delegateEmail}; ${delegation.hodEmail}`,
-    recipientName: `${delegation.delegateName} (CC: HOD ${delegation.hodName})`,
+    recipientName: `${delegation.delegateName}`,
     subject: `[IT OPS Authorization] Temporary HOD Approver Delegation for ${delegation.departmentName} (${delegation.startDate} to ${delegation.endDate})`,
     bodyHtml,
     sentAt: now,
@@ -803,7 +803,7 @@ export function createItDirectModificationEmail(
       IT Modified Case: ${changeRequest.id} — ${changeRequest.title}
     </h1>
     <div style="font-size: 11px; color: #a5b4fc; margin-top: 6px;">
-      Modified by <strong>${actor.fullName}</strong> (${actor.role}) on ${now}
+      Modified by <strong>${actor.fullName}</strong> on ${now}
     </div>
   </div>
 
@@ -904,7 +904,7 @@ export function createItDirectModificationEmail(
         ? '; alex.chen@company.com'
         : ''
     }`,
-    recipientName: `${changeRequest.requesterName} (Requester)`,
+    recipientName: `${changeRequest.requesterName}`,
     subject: `[IT OPS Update] ${normalizeEmailCrId(changeRequest.id)}: Direct IT Modifications Applied (Priority: ${newPriority})`,
     bodyHtml,
     sentAt: now,

@@ -104,7 +104,7 @@ export const DeviceOutView: React.FC<DeviceOutViewProps> = ({ currentUser, onOpe
     try {
       const res = await api.approveDeviceOutRequest(actionTargetReq.id, {
         approvedBy: currentUser.id,
-        approvedByName: currentUser.name,
+        approvedByName: currentUser.fullName,
         approverRole: currentUser.role,
         comments: approvalComments,
       });
@@ -136,7 +136,7 @@ export const DeviceOutView: React.FC<DeviceOutViewProps> = ({ currentUser, onOpe
     try {
       const res = await api.rejectDeviceOutRequest(actionTargetReq.id, {
         rejectedBy: currentUser.id,
-        rejectedByName: currentUser.name,
+        rejectedByName: currentUser.fullName,
         approverRole: currentUser.role,
         rejectionReason: rejectionReason.trim(),
       });
@@ -164,7 +164,7 @@ export const DeviceOutView: React.FC<DeviceOutViewProps> = ({ currentUser, onOpe
     try {
       const res = await api.returnDeviceOutRequest(actionTargetReq.id, {
         returnedBy: currentUser.id,
-        returnedByName: currentUser.name,
+        returnedByName: currentUser.fullName,
         approverRole: currentUser.role,
         remarks: returnRemarks,
       });
@@ -209,15 +209,15 @@ export const DeviceOutView: React.FC<DeviceOutViewProps> = ({ currentUser, onOpe
     try {
       const res = await api.createDeviceOutRequest({
         requesterId: currentUser.id,
-        requesterName: currentUser.name,
+        requesterName: currentUser.fullName,
         departmentId: currentUser.departmentId,
         departmentName: currentUser.departmentName || currentUser.department,
-        serviceName: createForm.serviceName,
+        assetType: createForm.serviceName,
         assetName: createForm.assetName,
-        serialNumber: createForm.serialNumber,
+        assetSerialNo: createForm.serialNumber,
         fromDate: createForm.fromDate,
         toDate: createForm.toDate,
-        vpnRequired: createForm.vpnRequired,
+        vpnRequired: createForm.vpnRequired ? 'Required' : 'Not Required',
         businessPurpose: createForm.businessPurpose,
       });
 
@@ -252,10 +252,15 @@ export const DeviceOutView: React.FC<DeviceOutViewProps> = ({ currentUser, onOpe
       req.requesterName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       req.assetName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       req.serviceName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      req.serialNumber?.toLowerCase().includes(searchQuery.toLowerCase());
+      req.assetSerialNo?.toLowerCase().includes(searchQuery.toLowerCase());
 
+    const status = req.approvalStatus?.toLowerCase() || '';
     const matchesStatus =
-      statusFilter === 'all' || req.approvalStatus?.toLowerCase() === statusFilter.toLowerCase();
+      statusFilter === 'all' ||
+      (statusFilter === 'pending' && (status.includes('pending') || status === 'submitted')) ||
+      (statusFilter === 'approved' && (status === 'approved' || status === 'in progress' || status === 'pending it verification')) ||
+      (statusFilter === 'rejected' && status.includes('rejected')) ||
+      (statusFilter === 'returned/closed' && status.includes('closed'));
 
     const matchesService =
       serviceFilter === 'all' || req.serviceName?.toLowerCase() === serviceFilter.toLowerCase();
@@ -277,36 +282,39 @@ export const DeviceOutView: React.FC<DeviceOutViewProps> = ({ currentUser, onOpe
   };
 
   const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'Approved':
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
-            <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
-            Approved
-          </span>
-        );
-      case 'Rejected':
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-800 border border-rose-200">
-            <XCircle className="w-3.5 h-3.5 text-rose-600" />
-            Rejected
-          </span>
-        );
-      case 'Returned/Closed':
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-800 border border-slate-300">
-            <RotateCcw className="w-3.5 h-3.5 text-slate-600" />
-            Returned/Closed
-          </span>
-        );
-      default:
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200">
-            <Clock className="w-3.5 h-3.5 text-amber-600" />
-            Pending Approval
-          </span>
-        );
+    if (status === 'Approved' || status === 'In Progress' || status === 'Pending IT Verification') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
+          <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+          {status === 'In Progress' ? 'Active / In Use' : 'Approved'}
+        </span>
+      );
     }
+    
+    if (status.includes('Rejected')) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-800 border border-rose-200">
+          <XCircle className="w-3.5 h-3.5 text-rose-600" />
+          Rejected
+        </span>
+      );
+    }
+    
+    if (status.includes('Closed')) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-800 border border-slate-300">
+          <RotateCcw className="w-3.5 h-3.5 text-slate-600" />
+          Returned/Closed
+        </span>
+      );
+    }
+
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200">
+        <Clock className="w-3.5 h-3.5 text-amber-600" />
+        {status.includes('HOD') ? 'Pending HOD' : status.includes('Review') ? 'Pending IT' : 'Pending'}
+      </span>
+    );
   };
 
   return (
@@ -425,8 +433,9 @@ export const DeviceOutView: React.FC<DeviceOutViewProps> = ({ currentUser, onOpe
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
                 {filteredRequests.map((req) => {
-                  const isApproved = req.approvalStatus === 'Approved';
-                  const isReturnedOrClosed = req.approvalStatus === 'Returned/Closed';
+                  const status = req.approvalStatus || '';
+                  const isApproved = status === 'Approved' || status === 'In Progress' || status === 'Pending IT Verification';
+                  const isReturnedOrClosed = status.includes('Closed');
 
                   return (
                     <tr key={req.id} className="hover:bg-slate-50/80 transition-colors">
@@ -555,7 +564,7 @@ export const DeviceOutView: React.FC<DeviceOutViewProps> = ({ currentUser, onOpe
       {stickerModalRequest && (
         <DeviceOutStickerModal
           request={stickerModalRequest}
-          currentUser={currentUser}
+          currentUser={{ id: currentUser.id, name: currentUser.fullName, role: currentUser.role }}
           onClose={() => setStickerModalRequest(null)}
           onPrintSuccess={() => {
             loadRequests();

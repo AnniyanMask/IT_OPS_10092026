@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { UserProfile, ChangeRequest, TemporaryApproverDelegation } from '../types';
 import { getUserDelegationContext } from '../utils/delegationUtils';
 import {
@@ -17,6 +17,7 @@ import {
   Zap,
   Lock,
   Edit,
+  Filter,
 } from 'lucide-react';
 
 interface DashboardViewProps {
@@ -38,6 +39,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onCreateNewRequest,
   delegations = [],
 }) => {
+  const [filterStatus, setFilterStatus] = useState<string | null>(null);
   const delegationCtx = getUserDelegationContext(currentUser, delegations);
 
   // Compute KPI metrics
@@ -73,16 +75,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   // Status breakdown totals
   const statusCounts = {
-    Draft: changeRequests.filter((cr) => cr.status === 'Draft').length,
     'Pending HOD Approval': changeRequests.filter((cr) => cr.status === 'Pending HOD Approval').length,
-    'Pending IT Admin Review': changeRequests.filter((cr) => cr.status === 'Pending IT Admin Review').length,
     'In Progress': changeRequests.filter((cr) => cr.status === 'In Progress').length,
-    'Pending IT Verification': changeRequests.filter((cr) => cr.status === 'Pending IT Verification').length,
     'Closed (Completed)': closedCompleted.length,
-    'Returned / Rejected': changeRequests.filter(
-      (cr) => cr.status === 'Returned to Requester' || cr.status === 'Closed (Rejected)'
-    ).length,
+    'Returned to Requester': changeRequests.filter((cr) => cr.status === 'Returned to Requester').length,
   };
+
+  const filteredRequests = filterStatus 
+    ? changeRequests.filter(cr => cr.status === filterStatus)
+    : changeRequests;
 
   // Helper for status pill dots
   const getStatusDot = (status: string) => {
@@ -242,22 +243,86 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
       {/* Active Change Requests Register Table Section */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-        <div className="p-5 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/50">
-          <div>
-            <h2 className="text-base font-bold text-slate-900 flex items-center space-x-2">
-              <BarChart3 className="w-5 h-5 text-blue-600" />
-              <span>Active Requests</span>
-            </h2>
-            
+        <div className="p-5 border-b border-slate-200 flex flex-col gap-5 bg-slate-50/50">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-bold text-slate-900 flex items-center space-x-2">
+                <BarChart3 className="w-5 h-5 text-blue-600" />
+                <span>Active Requests</span>
+              </h2>
+            </div>
+
+            <div className="flex items-center space-x-4">
+              <button
+                onClick={() => onNavigateTab('myrequests')}
+                className="text-xs font-semibold text-blue-600 hover:text-blue-800 flex items-center space-x-1 shrink-0"
+              >
+                <span>View All Requests</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
 
-          <div className="flex items-center space-x-4">
+          {/* Filter Button Group */}
+          <div className="flex flex-wrap items-center gap-2">
             <button
-              onClick={() => onNavigateTab('myrequests')}
-              className="text-xs font-semibold text-blue-600 hover:text-blue-800 flex items-center space-x-1 shrink-0"
+              onClick={() => setFilterStatus(null)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border flex items-center gap-2 ${
+                filterStatus === null
+                  ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+              }`}
             >
-              <span>View All Requests</span>
-              <ArrowRight className="w-3.5 h-3.5" />
+              <Filter className="w-3 h-3" />
+              <span>All ({changeRequests.length})</span>
+            </button>
+
+            <button
+              onClick={() => setFilterStatus('Pending HOD Approval')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border flex items-center gap-2 ${
+                filterStatus === 'Pending HOD Approval'
+                  ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-amber-200 hover:text-amber-700'
+              }`}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${filterStatus === 'Pending HOD Approval' ? 'bg-white' : 'bg-amber-500'}`} />
+              <span>Pending HOD Approval ({statusCounts['Pending HOD Approval']})</span>
+            </button>
+
+            <button
+              onClick={() => setFilterStatus('In Progress')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border flex items-center gap-2 ${
+                filterStatus === 'In Progress'
+                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-emerald-200 hover:text-emerald-700'
+              }`}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${filterStatus === 'In Progress' ? 'bg-white' : 'bg-emerald-500'}`} />
+              <span>In Progress ({statusCounts['In Progress']})</span>
+            </button>
+
+            <button
+              onClick={() => setFilterStatus('Closed (Completed)')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border flex items-center gap-2 ${
+                filterStatus === 'Closed (Completed)'
+                  ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-blue-200 hover:text-blue-700'
+              }`}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${filterStatus === 'Closed (Completed)' ? 'bg-white' : 'bg-blue-500'}`} />
+              <span>Closed (Completed) ({statusCounts['Closed (Completed)']})</span>
+            </button>
+
+            <button
+              onClick={() => setFilterStatus('Returned to Requester')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border flex items-center gap-2 ${
+                filterStatus === 'Returned to Requester'
+                  ? 'bg-rose-600 text-white border-rose-600 shadow-sm'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-rose-200 hover:text-rose-700'
+              }`}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${filterStatus === 'Returned to Requester' ? 'bg-white' : 'bg-rose-500'}`} />
+              <span>Returned to Requester ({statusCounts['Returned to Requester']})</span>
             </button>
           </div>
         </div>
@@ -276,7 +341,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {changeRequests.length === 0 ? (
+              {filteredRequests.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="p-10 text-center text-slate-500">
                     <div className="flex flex-col items-center justify-center space-y-2.5">
@@ -292,7 +357,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </td>
                 </tr>
               ) : (
-                changeRequests.map((cr) => (
+                filteredRequests.map((cr) => (
                   <tr
                     key={cr.id}
                     onClick={() => onRequestClick(cr.id)}

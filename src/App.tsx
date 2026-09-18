@@ -979,7 +979,7 @@ export default function App() {
           const devEmail = devUser?.email || 'alex.chen@company.com';
 
           const recipientEmails = isAssignedToDev
-            ? `${devEmail}; TEMIT@tanaka.com.my; ${currentUser.email}; ${targetHodEmail}`
+            ? `${devEmail}; ${currentUser.email}; ${targetHodEmail}`
             : `TEMIT@tanaka.com.my; ${currentUser.email}; ${targetHodEmail}`;
 
           const emailLog = createStateTransitionEmail({
@@ -987,8 +987,8 @@ export default function App() {
             requestTitle: requestData.title || existingCr?.title || 'Untitled Request',
             recipientEmail: recipientEmails,
             recipientName: isAssignedToDev
-              ? `${existingCr?.assignedDeveloperName || 'Developer'} (Dev), IT Admin & ${currentUser.fullName} (CC: HOD ${targetHodName})`
-              : `IT Admin Team & ${currentUser.fullName} (CC: HOD ${targetHodName})`,
+              ? `${existingCr?.assignedDeveloperName || 'Developer'} & ${currentUser.fullName}`
+              : `IT Admin Team & ${currentUser.fullName}`,
             previousStatus: existingCr?.status || 'Returned to Requester',
             newStatus: newStatus,
             actionTaken: isCritical
@@ -1154,7 +1154,7 @@ export default function App() {
             changeRequestId: targetCrId,
             requestTitle: requestData.title || 'Untitled Request',
             recipientEmail: `TEMIT@tanaka.com.my; ${currentUser.email}; ${targetHodEmail}`,
-            recipientName: `IT Admin Team & ${currentUser.fullName} (CC: HOD ${targetHodName})`,
+            recipientName: `IT Admin Team & ${currentUser.fullName}`,
             previousStatus: 'New Request',
             newStatus: 'Pending IT Admin Review',
             actionTaken: 'CRITICAL EMERGENCY: HOD Approval Bypassed',
@@ -1278,8 +1278,8 @@ export default function App() {
             const emailLog = createStateTransitionEmail({
               changeRequestId: cr.id,
               requestTitle: cr.title,
-              recipientEmail: `${devEmail}; ${cr.requesterEmail}; TEMIT@tanaka.com.my`,
-              recipientName: `${cr.assignedDeveloperName} (Assigned Dev), ${cr.requesterName} (Requester) & IT Admin`,
+              recipientEmail: `${devEmail}; ${cr.requesterEmail}`,
+              recipientName: `${cr.assignedDeveloperName} & ${cr.requesterName}`,
               previousStatus: cr.status,
               newStatus: 'In Progress',
               actionTaken: `HOD Approved — Routed Straight to Assigned Developer (${cr.assignedDeveloperName})`,
@@ -1534,7 +1534,7 @@ export default function App() {
       fromStatus: targetCr.status,
       toStatus: targetCr.status,
       decision: 'Reminder Sent (Chase Policy)',
-      comments: customNote || `${stageInfo.shortBadge} (${stageInfo.title}) dispatched by ${currentUser.fullName} (${currentUser.role}). Reminder #${newReminderCount}.`,
+      comments: customNote || `${stageInfo.shortBadge} (${stageInfo.title}) dispatched by ${currentUser.fullName}. Reminder #${newReminderCount}.`,
     };
 
     const targetDept = departments.find((d) => d.id === targetCr.departmentId);
@@ -1549,7 +1549,7 @@ export default function App() {
       changeRequestId: targetCr.id,
       requestTitle: targetCr.title,
       recipientEmail: recipientEmails,
-      recipientName: `${targetCr.requesterName}${stage >= 2 ? ' (CC: Department HOD)' : ''}`,
+      recipientName: targetCr.requesterName,
       previousStatus: targetCr.status,
       newStatus: targetCr.status,
       actionTaken: `CHASE NOTICE [${stageInfo.shortBadge}]: Action Required`,
@@ -1701,7 +1701,7 @@ export default function App() {
           changeRequestId: cr.id,
           requestTitle: cr.title,
           recipientEmail: `${devEmail}; ${cr.requesterEmail}`,
-          recipientName: `${developerName} (Developer) & ${cr.requesterName}`,
+          recipientName: `${developerName} & ${cr.requesterName}`,
           previousStatus: cr.status,
           newStatus: 'In Progress',
           actionTaken: `Assigned to ${developerName}`,
@@ -1775,8 +1775,8 @@ export default function App() {
         const emailLog = createStateTransitionEmail({
           changeRequestId: cr.id,
           requestTitle: cr.title,
-          recipientEmail: `TEMIT@tanaka.com.my; ${cr.requesterEmail}`,
-          recipientName: `IT Admin & ${cr.requesterName}`,
+          recipientEmail: cr.requesterEmail,
+          recipientName: cr.requesterName,
           previousStatus: cr.status,
           newStatus,
           actionTaken: `Development Status Updated to ${newStatus}`,
@@ -2024,7 +2024,7 @@ export default function App() {
           fromStatus: cr.status,
           toStatus: 'Closed (Rejected)',
           decision: 'Rejected',
-          comments: rejectionReason || `Ticket rejected by ${currentUser.fullName} (${currentUser.role}).`,
+          comments: rejectionReason || `Ticket rejected by ${currentUser.fullName}.`,
         };
 
         // Find HOD for Department
@@ -2036,10 +2036,10 @@ export default function App() {
           changeRequestId: cr.id,
           requestTitle: cr.title,
           recipientEmail: `${cr.requesterEmail}; ${hodEmail}`,
-          recipientName: `${cr.requesterName} (Requester) & HOD`,
+          recipientName: `${cr.requesterName} & HOD`,
           previousStatus: cr.status,
           newStatus: 'Closed (Rejected)',
-          actionTaken: `Case Rejected by ${currentUser.fullName} (${currentUser.role})`,
+          actionTaken: `Case Rejected by ${currentUser.fullName}`,
           actorName: currentUser.fullName,
           comments: `Rejection Justification: ${rejectionReason}. Note: Case can only be reopened by a System Administrator.`,
           smtpConfig,
@@ -2051,7 +2051,7 @@ export default function App() {
           id: `notif-${Date.now()}`,
           userId: cr.requesterId,
           title: `❌ Change Request Rejected (${cr.id})`,
-          message: `CR ${cr.id} (${cr.title}) was rejected by ${currentUser.fullName} (${currentUser.role}): "${rejectionReason}".`,
+          message: `CR ${cr.id} (${cr.title}) was rejected by ${currentUser.fullName}: "${rejectionReason}".`,
           createdAt: now,
           read: false,
           changeRequestId: cr.id,
@@ -2061,7 +2061,7 @@ export default function App() {
           id: `notif-${Date.now() + 1}`,
           userId: targetDept?.hodUserId || 'user-hod-prod',
           title: `Audit Notice: CR ${cr.id} Rejected`,
-          message: `${currentUser.fullName} (${currentUser.role}) rejected CR ${cr.id}. Reason: "${rejectionReason}".`,
+          message: `${currentUser.fullName} rejected CR ${cr.id}. Reason: "${rejectionReason}".`,
           createdAt: now,
           read: false,
           changeRequestId: cr.id,
@@ -2468,7 +2468,7 @@ export default function App() {
       case 'itadmin':
         return 'IT Admin Workspace';
       case 'dev':
-        return 'Task Board';
+        return 'Service Queue';
       case 'closed':
         return 'Closed Cases Archive & Completion Register';
       case 'admin':

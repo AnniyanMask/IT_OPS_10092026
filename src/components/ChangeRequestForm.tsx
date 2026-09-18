@@ -516,27 +516,6 @@ export const ChangeRequestForm: React.FC<ChangeRequestFormProps> = ({
       ? (businessJustification.trim() || deviceBusinessPurpose.trim() || 'Authorized company equipment removal.')
       : businessJustification || 'Standard IT operational request.';
 
-    // Synchronize to dedicated Bring Device Out storage table
-    if (isDeviceOutCategory) {
-      try {
-        await api.createDeviceOutRequest({
-          requesterId: currentUser.id,
-          requesterName: currentUser.fullName,
-          departmentId: currentUser.departmentId,
-          departmentName: currentUser.departmentName,
-          serviceName: currentService.name,
-          assetName: deviceAssetModel.trim() || currentAppAsset.name || currentService.name,
-          serialNumber: deviceSerialNumber.trim() || undefined,
-          fromDate: deviceFromDate,
-          toDate: deviceToDate,
-          vpnRequired: deviceVpnRequired,
-          businessPurpose: deviceBusinessPurpose.trim() || finalJustification,
-        });
-      } catch (err) {
-        console.warn('[Device Out Direct Sync Notice]', err);
-      }
-    }
-
     const payload: Partial<ChangeRequest> = {
       id: initialData?.id,
       submissionId: submissionIdRef.current || undefined,

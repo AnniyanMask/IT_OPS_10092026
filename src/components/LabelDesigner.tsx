@@ -64,14 +64,14 @@ const STARTER_PRESETS = [
     heightMm: 50,
     orientation: 'Landscape' as const,
     elements: (templateId: string): LabelTemplateElement[] => [
-      { id: `el-${Date.now()}-1`, templateId, elementType: 'badge', fieldKey: 'APPROVED', xMm: 4, yMm: 3, widthMm: 92, heightMm: 7, fontSize: 13, fontWeight: 'bold', visible: true, alignment: 'center', rotation: 0 },
-      { id: `el-${Date.now()}-2`, templateId, elementType: 'text', fieldKey: 'request_number', xMm: 4, yMm: 12, widthMm: 45, heightMm: 6, fontSize: 9, fontWeight: 'bold', visible: true, alignment: 'left', rotation: 0 },
-      { id: `el-${Date.now()}-3`, templateId, elementType: 'text', fieldKey: 'requester_name', xMm: 4, yMm: 18, widthMm: 92, heightMm: 6, fontSize: 9, fontWeight: 'bold', visible: true, alignment: 'left', rotation: 0 },
-      { id: `el-${Date.now()}-4`, templateId, elementType: 'text', fieldKey: 'asset_name', xMm: 4, yMm: 24, widthMm: 92, heightMm: 6, fontSize: 9, fontWeight: 'bold', visible: true, alignment: 'left', rotation: 0 },
-      { id: `el-${Date.now()}-5`, templateId, elementType: 'text', fieldKey: 'from_date', xMm: 4, yMm: 30, widthMm: 44, heightMm: 5, fontSize: 8, fontWeight: 'normal', visible: true, alignment: 'left', rotation: 0 },
-      { id: `el-${Date.now()}-6`, templateId, elementType: 'text', fieldKey: 'to_date', xMm: 50, yMm: 30, widthMm: 46, heightMm: 5, fontSize: 8, fontWeight: 'normal', visible: true, alignment: 'left', rotation: 0 },
-      { id: `el-${Date.now()}-7`, templateId, elementType: 'text', fieldKey: 'approver_name', xMm: 4, yMm: 36, widthMm: 92, heightMm: 5, fontSize: 8, fontWeight: 'bold', visible: true, alignment: 'left', rotation: 0 },
-      { id: `el-${Date.now()}-8`, templateId, elementType: 'text', fieldKey: 'security_footer', xMm: 4, yMm: 42, widthMm: 92, heightMm: 5, fontSize: 7, fontWeight: 'normal', visible: true, alignment: 'center', rotation: 0 },
+      { id: `el-${Date.now()}-1`, templateId, elementType: 'badge', fieldType: 'dynamic', fieldKey: 'APPROVED', xMm: 4, yMm: 3, widthMm: 92, heightMm: 7, fontSize: 13, fontWeight: 'bold', visible: true, alignment: 'center', rotation: 0 },
+      { id: `el-${Date.now()}-2`, templateId, elementType: 'text', fieldType: 'dynamic', fieldKey: 'request_number', xMm: 4, yMm: 12, widthMm: 45, heightMm: 6, fontSize: 9, fontWeight: 'bold', visible: true, alignment: 'left', rotation: 0 },
+      { id: `el-${Date.now()}-3`, templateId, elementType: 'text', fieldType: 'dynamic', fieldKey: 'requester_name', xMm: 4, yMm: 18, widthMm: 92, heightMm: 6, fontSize: 9, fontWeight: 'bold', visible: true, alignment: 'left', rotation: 0 },
+      { id: `el-${Date.now()}-4`, templateId, elementType: 'text', fieldType: 'dynamic', fieldKey: 'asset_name', xMm: 4, yMm: 24, widthMm: 92, heightMm: 6, fontSize: 9, fontWeight: 'bold', visible: true, alignment: 'left', rotation: 0 },
+      { id: `el-${Date.now()}-5`, templateId, elementType: 'text', fieldType: 'dynamic', fieldKey: 'from_date', xMm: 4, yMm: 30, widthMm: 44, heightMm: 5, fontSize: 8, fontWeight: 'normal', visible: true, alignment: 'left', rotation: 0 },
+      { id: `el-${Date.now()}-6`, templateId, elementType: 'text', fieldType: 'dynamic', fieldKey: 'to_date', xMm: 50, yMm: 30, widthMm: 46, heightMm: 5, fontSize: 8, fontWeight: 'normal', visible: true, alignment: 'left', rotation: 0 },
+      { id: `el-${Date.now()}-7`, templateId, elementType: 'text', fieldType: 'dynamic', fieldKey: 'approver_name', xMm: 4, yMm: 36, widthMm: 92, heightMm: 5, fontSize: 8, fontWeight: 'bold', visible: true, alignment: 'left', rotation: 0 },
+      { id: `el-${Date.now()}-8`, templateId, elementType: 'text', fieldType: 'dynamic', fieldKey: 'security_footer', xMm: 4, yMm: 42, widthMm: 92, heightMm: 5, fontSize: 7, fontWeight: 'normal', visible: true, alignment: 'center', rotation: 0 },
     ]
   },
   {
@@ -82,13 +82,13 @@ const STARTER_PRESETS = [
     heightMm: 40,
     orientation: 'Landscape' as const,
     elements: (templateId: string): LabelTemplateElement[] => [
-      { id: `el-${Date.now()}-1`, templateId, elementType: 'badge', fieldKey: 'APPROVED', xMm: 3, yMm: 2, widthMm: 74, heightMm: 6, fontSize: 11, fontWeight: 'bold', visible: true, alignment: 'center', rotation: 0 },
-      { id: `el-${Date.now()}-2`, templateId, elementType: 'text', fieldKey: 'request_number', xMm: 3, yMm: 10, widthMm: 36, heightMm: 5, fontSize: 8, fontWeight: 'bold', visible: true, alignment: 'left', rotation: 0 },
-      { id: `el-${Date.now()}-3`, templateId, elementType: 'text', fieldKey: 'requester_name', xMm: 3, yMm: 16, widthMm: 74, heightMm: 5, fontSize: 8, fontWeight: 'bold', visible: true, alignment: 'left', rotation: 0 },
-      { id: `el-${Date.now()}-4`, templateId, elementType: 'text', fieldKey: 'asset_name', xMm: 3, yMm: 22, widthMm: 74, heightMm: 5, fontSize: 8, fontWeight: 'bold', visible: true, alignment: 'left', rotation: 0 },
-      { id: `el-${Date.now()}-5`, templateId, elementType: 'text', fieldKey: 'from_date', xMm: 3, yMm: 28, widthMm: 35, heightMm: 4.5, fontSize: 7.5, fontWeight: 'normal', visible: true, alignment: 'left', rotation: 0 },
-      { id: `el-${Date.now()}-6`, templateId, elementType: 'text', fieldKey: 'to_date', xMm: 40, yMm: 28, widthMm: 37, heightMm: 4.5, fontSize: 7.5, fontWeight: 'normal', visible: true, alignment: 'left', rotation: 0 },
-      { id: `el-${Date.now()}-7`, templateId, elementType: 'text', fieldKey: 'approver_name', xMm: 3, yMm: 33, widthMm: 74, heightMm: 4.5, fontSize: 7.5, fontWeight: 'bold', visible: true, alignment: 'left', rotation: 0 },
+      { id: `el-${Date.now()}-1`, templateId, elementType: 'badge', fieldType: 'dynamic', fieldKey: 'APPROVED', xMm: 3, yMm: 2, widthMm: 74, heightMm: 6, fontSize: 11, fontWeight: 'bold', visible: true, alignment: 'center', rotation: 0 },
+      { id: `el-${Date.now()}-2`, templateId, elementType: 'text', fieldType: 'dynamic', fieldKey: 'request_number', xMm: 3, yMm: 10, widthMm: 36, heightMm: 5, fontSize: 8, fontWeight: 'bold', visible: true, alignment: 'left', rotation: 0 },
+      { id: `el-${Date.now()}-3`, templateId, elementType: 'text', fieldType: 'dynamic', fieldKey: 'requester_name', xMm: 3, yMm: 16, widthMm: 74, heightMm: 5, fontSize: 8, fontWeight: 'bold', visible: true, alignment: 'left', rotation: 0 },
+      { id: `el-${Date.now()}-4`, templateId, elementType: 'text', fieldType: 'dynamic', fieldKey: 'asset_name', xMm: 3, yMm: 22, widthMm: 74, heightMm: 5, fontSize: 8, fontWeight: 'bold', visible: true, alignment: 'left', rotation: 0 },
+      { id: `el-${Date.now()}-5`, templateId, elementType: 'text', fieldType: 'dynamic', fieldKey: 'from_date', xMm: 3, yMm: 28, widthMm: 35, heightMm: 4.5, fontSize: 7.5, fontWeight: 'normal', visible: true, alignment: 'left', rotation: 0 },
+      { id: `el-${Date.now()}-6`, templateId, elementType: 'text', fieldType: 'dynamic', fieldKey: 'to_date', xMm: 40, yMm: 28, widthMm: 37, heightMm: 4.5, fontSize: 7.5, fontWeight: 'normal', visible: true, alignment: 'left', rotation: 0 },
+      { id: `el-${Date.now()}-7`, templateId, elementType: 'text', fieldType: 'dynamic', fieldKey: 'approver_name', xMm: 3, yMm: 33, widthMm: 74, heightMm: 4.5, fontSize: 7.5, fontWeight: 'bold', visible: true, alignment: 'left', rotation: 0 },
     ]
   },
   {
@@ -99,12 +99,12 @@ const STARTER_PRESETS = [
     heightMm: 30,
     orientation: 'Landscape' as const,
     elements: (templateId: string): LabelTemplateElement[] => [
-      { id: `el-${Date.now()}-1`, templateId, elementType: 'badge', fieldKey: 'APPROVED', xMm: 2, yMm: 2, widthMm: 46, heightMm: 5, fontSize: 9, fontWeight: 'bold', visible: true, alignment: 'center', rotation: 0 },
-      { id: `el-${Date.now()}-2`, templateId, elementType: 'text', fieldKey: 'request_number', xMm: 2, yMm: 8, widthMm: 46, heightMm: 4.5, fontSize: 7.5, fontWeight: 'bold', visible: true, alignment: 'left', rotation: 0 },
-      { id: `el-${Date.now()}-3`, templateId, elementType: 'text', fieldKey: 'asset_name', xMm: 2, yMm: 13, widthMm: 46, heightMm: 4.5, fontSize: 7.5, fontWeight: 'bold', visible: true, alignment: 'left', rotation: 0 },
-      { id: `el-${Date.now()}-4`, templateId, elementType: 'text', fieldKey: 'from_date', xMm: 2, yMm: 18, widthMm: 22, heightMm: 4, fontSize: 7, fontWeight: 'normal', visible: true, alignment: 'left', rotation: 0 },
-      { id: `el-${Date.now()}-5`, templateId, elementType: 'text', fieldKey: 'to_date', xMm: 25, yMm: 18, widthMm: 23, heightMm: 4, fontSize: 7, fontWeight: 'normal', visible: true, alignment: 'left', rotation: 0 },
-      { id: `el-${Date.now()}-6`, templateId, elementType: 'text', fieldKey: 'approver_name', xMm: 2, yMm: 23, widthMm: 46, heightMm: 4, fontSize: 7, fontWeight: 'bold', visible: true, alignment: 'left', rotation: 0 },
+      { id: `el-${Date.now()}-1`, templateId, elementType: 'badge', fieldType: 'dynamic', fieldKey: 'APPROVED', xMm: 2, yMm: 2, widthMm: 46, heightMm: 5, fontSize: 9, fontWeight: 'bold', visible: true, alignment: 'center', rotation: 0 },
+      { id: `el-${Date.now()}-2`, templateId, elementType: 'text', fieldType: 'dynamic', fieldKey: 'request_number', xMm: 2, yMm: 8, widthMm: 46, heightMm: 4.5, fontSize: 7.5, fontWeight: 'bold', visible: true, alignment: 'left', rotation: 0 },
+      { id: `el-${Date.now()}-3`, templateId, elementType: 'text', fieldType: 'dynamic', fieldKey: 'asset_name', xMm: 2, yMm: 13, widthMm: 46, heightMm: 4.5, fontSize: 7.5, fontWeight: 'bold', visible: true, alignment: 'left', rotation: 0 },
+      { id: `el-${Date.now()}-4`, templateId, elementType: 'text', fieldType: 'dynamic', fieldKey: 'from_date', xMm: 2, yMm: 18, widthMm: 22, heightMm: 4, fontSize: 7, fontWeight: 'normal', visible: true, alignment: 'left', rotation: 0 },
+      { id: `el-${Date.now()}-5`, templateId, elementType: 'text', fieldType: 'dynamic', fieldKey: 'to_date', xMm: 25, yMm: 18, widthMm: 23, heightMm: 4, fontSize: 7, fontWeight: 'normal', visible: true, alignment: 'left', rotation: 0 },
+      { id: `el-${Date.now()}-6`, templateId, elementType: 'text', fieldType: 'dynamic', fieldKey: 'approver_name', xMm: 2, yMm: 23, widthMm: 46, heightMm: 4, fontSize: 7, fontWeight: 'bold', visible: true, alignment: 'left', rotation: 0 },
     ]
   },
   {
@@ -115,15 +115,15 @@ const STARTER_PRESETS = [
     heightMm: 75,
     orientation: 'Landscape' as const,
     elements: (templateId: string): LabelTemplateElement[] => [
-      { id: `el-${Date.now()}-1`, templateId, elementType: 'badge', fieldKey: 'APPROVED', xMm: 5, yMm: 4, widthMm: 90, heightMm: 9, fontSize: 15, fontWeight: 'bold', visible: true, alignment: 'center', rotation: 0 },
-      { id: `el-${Date.now()}-2`, templateId, elementType: 'text', fieldKey: 'request_number', xMm: 5, yMm: 16, widthMm: 45, heightMm: 7, fontSize: 10, fontWeight: 'bold', visible: true, alignment: 'left', rotation: 0 },
-      { id: `el-${Date.now()}-3`, templateId, elementType: 'text', fieldKey: 'requester_name', xMm: 5, yMm: 25, widthMm: 90, heightMm: 7, fontSize: 10, fontWeight: 'bold', visible: true, alignment: 'left', rotation: 0 },
-      { id: `el-${Date.now()}-4`, templateId, elementType: 'text', fieldKey: 'asset_name', xMm: 5, yMm: 34, widthMm: 90, heightMm: 7, fontSize: 10, fontWeight: 'bold', visible: true, alignment: 'left', rotation: 0 },
-      { id: `el-${Date.now()}-5`, templateId, elementType: 'text', fieldKey: 'from_date', xMm: 5, yMm: 43, widthMm: 44, heightMm: 6, fontSize: 9, fontWeight: 'normal', visible: true, alignment: 'left', rotation: 0 },
-      { id: `el-${Date.now()}-6`, templateId, elementType: 'text', fieldKey: 'to_date', xMm: 51, yMm: 43, widthMm: 44, heightMm: 6, fontSize: 9, fontWeight: 'normal', visible: true, alignment: 'left', rotation: 0 },
-      { id: `el-${Date.now()}-7`, templateId, elementType: 'text', fieldKey: 'approver_name', xMm: 5, yMm: 51, widthMm: 90, heightMm: 6, fontSize: 9, fontWeight: 'bold', visible: true, alignment: 'left', rotation: 0 },
-      { id: `el-${Date.now()}-8`, templateId, elementType: 'text', fieldKey: 'custom_text', xMm: 5, yMm: 59, widthMm: 90, heightMm: 6, fontSize: 8.5, fontWeight: 'normal', visible: true, alignment: 'left', rotation: 0 },
-      { id: `el-${Date.now()}-9`, templateId, elementType: 'text', fieldKey: 'security_footer', xMm: 5, yMm: 67, widthMm: 90, heightMm: 5, fontSize: 8, fontWeight: 'normal', visible: true, alignment: 'center', rotation: 0 },
+      { id: `el-${Date.now()}-1`, templateId, elementType: 'badge', fieldType: 'dynamic', fieldKey: 'APPROVED', xMm: 5, yMm: 4, widthMm: 90, heightMm: 9, fontSize: 15, fontWeight: 'bold', visible: true, alignment: 'center', rotation: 0 },
+      { id: `el-${Date.now()}-2`, templateId, elementType: 'text', fieldType: 'dynamic', fieldKey: 'request_number', xMm: 5, yMm: 16, widthMm: 45, heightMm: 7, fontSize: 10, fontWeight: 'bold', visible: true, alignment: 'left', rotation: 0 },
+      { id: `el-${Date.now()}-3`, templateId, elementType: 'text', fieldType: 'dynamic', fieldKey: 'requester_name', xMm: 5, yMm: 25, widthMm: 90, heightMm: 7, fontSize: 10, fontWeight: 'bold', visible: true, alignment: 'left', rotation: 0 },
+      { id: `el-${Date.now()}-4`, templateId, elementType: 'text', fieldType: 'dynamic', fieldKey: 'asset_name', xMm: 5, yMm: 34, widthMm: 90, heightMm: 7, fontSize: 10, fontWeight: 'bold', visible: true, alignment: 'left', rotation: 0 },
+      { id: `el-${Date.now()}-5`, templateId, elementType: 'text', fieldType: 'dynamic', fieldKey: 'from_date', xMm: 5, yMm: 43, widthMm: 44, heightMm: 6, fontSize: 9, fontWeight: 'normal', visible: true, alignment: 'left', rotation: 0 },
+      { id: `el-${Date.now()}-6`, templateId, elementType: 'text', fieldType: 'dynamic', fieldKey: 'to_date', xMm: 51, yMm: 43, widthMm: 44, heightMm: 6, fontSize: 9, fontWeight: 'normal', visible: true, alignment: 'left', rotation: 0 },
+      { id: `el-${Date.now()}-7`, templateId, elementType: 'text', fieldType: 'dynamic', fieldKey: 'approver_name', xMm: 5, yMm: 51, widthMm: 90, heightMm: 6, fontSize: 9, fontWeight: 'bold', visible: true, alignment: 'left', rotation: 0 },
+      { id: `el-${Date.now()}-8`, templateId, elementType: 'text', fieldType: 'dynamic', fieldKey: 'custom_text', xMm: 5, yMm: 59, widthMm: 90, heightMm: 6, fontSize: 8.5, fontWeight: 'normal', visible: true, alignment: 'left', rotation: 0 },
+      { id: `el-${Date.now()}-9`, templateId, elementType: 'text', fieldType: 'dynamic', fieldKey: 'security_footer', xMm: 5, yMm: 67, widthMm: 90, heightMm: 5, fontSize: 8, fontWeight: 'normal', visible: true, alignment: 'center', rotation: 0 },
     ]
   },
   {
@@ -134,7 +134,7 @@ const STARTER_PRESETS = [
     heightMm: 50,
     orientation: 'Landscape' as const,
     elements: (templateId: string): LabelTemplateElement[] => [
-      { id: `el-${Date.now()}-1`, templateId, elementType: 'badge', fieldKey: 'APPROVED', xMm: 4, yMm: 3, widthMm: 92, heightMm: 7, fontSize: 13, fontWeight: 'bold', visible: true, alignment: 'center', rotation: 0 },
+      { id: `el-${Date.now()}-1`, templateId, elementType: 'badge', fieldType: 'dynamic', fieldKey: 'APPROVED', xMm: 4, yMm: 3, widthMm: 92, heightMm: 7, fontSize: 13, fontWeight: 'bold', visible: true, alignment: 'center', rotation: 0 },
     ]
   }
 ];
@@ -237,7 +237,9 @@ export const LabelDesigner: React.FC<LabelDesignerProps> = ({ currentUser, onClo
       id: newId,
       templateId: selectedTemplate.id,
       elementType: 'text',
+      fieldType: 'dynamic',
       fieldKey: 'custom_text',
+      staticText: '',
       xMm: 5,
       yMm: 5,
       widthMm: 40,
@@ -800,6 +802,9 @@ export const LabelDesigner: React.FC<LabelDesignerProps> = ({ currentUser, onClo
               {selectedTemplate?.elements?.map((el) => {
                 const opt = FIELD_OPTIONS.find((f) => f.key === el.fieldKey);
                 const isSelected = el.id === selectedElementId;
+                const label = el.fieldType === 'static' 
+                  ? `Static: ${el.staticText || 'Empty'}` 
+                  : (opt ? opt.label : el.fieldKey);
                 return (
                   <div
                     key={el.id}
@@ -812,7 +817,7 @@ export const LabelDesigner: React.FC<LabelDesignerProps> = ({ currentUser, onClo
                   >
                     <div className="flex items-center gap-2 truncate">
                       <span className={`w-2 h-2 rounded-full ${el.visible ? 'bg-emerald-500' : 'bg-slate-300'}`} />
-                      <span className="truncate">{opt ? opt.label : el.fieldKey}</span>
+                      <span className="truncate">{label}</span>
                     </div>
                     <div className="flex items-center gap-1">
                       <button
@@ -883,7 +888,9 @@ export const LabelDesigner: React.FC<LabelDesignerProps> = ({ currentUser, onClo
               {selectedTemplate.elements?.map((el) => {
                 if (!el.visible) return null;
                 const isSelected = el.id === selectedElementId;
-                const sampleText = SAMPLE_DATA[el.fieldKey] || el.fieldKey;
+                const sampleText = el.fieldType === 'static' 
+                  ? (el.staticText || '') 
+                  : (SAMPLE_DATA[el.fieldKey] || el.fieldKey);
 
                 return (
                   <div
@@ -952,28 +959,86 @@ export const LabelDesigner: React.FC<LabelDesignerProps> = ({ currentUser, onClo
           {selectedElement ? (
             <div className="space-y-4">
               <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1">Field Type / Source</label>
-                <select
-                  value={selectedElement.fieldKey}
-                  onChange={(e) => {
-                    const opt = FIELD_OPTIONS.find((f) => f.key === e.target.value);
-                    handleUpdateElement(selectedElement.id, {
-                      fieldKey: e.target.value,
-                      elementType: (opt?.defaultType as any) || 'text',
-                      fontSize: opt?.fontSize || 9,
-                      fontWeight: opt?.bold ? 'bold' : 'normal',
-                      widthMm: opt?.defaultWidth || selectedElement.widthMm,
-                      heightMm: opt?.defaultHeight || selectedElement.heightMm,
-                    });
-                  }}
-                  className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-md focus:ring-1 focus:ring-indigo-500 font-medium"
-                >
-                  {FIELD_OPTIONS.map((f) => (
-                    <option key={f.key} value={f.key}>
-                      {f.label}
-                    </option>
-                  ))}
-                </select>
+                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">Source & Content</label>
+                <div className="grid grid-cols-2 gap-1 mb-2">
+                  <button
+                    onClick={() => handleUpdateElement(selectedElement.id, { fieldType: 'dynamic' })}
+                    className={`py-1.5 text-[10px] font-bold rounded-lg border transition-all ${
+                      selectedElement.fieldType === 'dynamic'
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    Dynamic Data
+                  </button>
+                  <button
+                    onClick={() => handleUpdateElement(selectedElement.id, { fieldType: 'static' })}
+                    className={`py-1.5 text-[10px] font-bold rounded-lg border transition-all ${
+                      selectedElement.fieldType === 'static'
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    Static Text
+                  </button>
+                </div>
+
+                {selectedElement.fieldType === 'dynamic' ? (
+                  <select
+                    value={selectedElement.fieldKey}
+                    onChange={(e) => {
+                      const opt = FIELD_OPTIONS.find((f) => f.key === e.target.value);
+                      handleUpdateElement(selectedElement.id, {
+                        fieldKey: e.target.value,
+                        elementType: (opt?.defaultType as any) || 'text',
+                        fontSize: opt?.fontSize || 9,
+                        fontWeight: opt?.bold ? 'bold' : 'normal',
+                        widthMm: opt?.defaultWidth || selectedElement.widthMm,
+                        heightMm: opt?.defaultHeight || selectedElement.heightMm,
+                      });
+                    }}
+                    className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-md focus:ring-1 focus:ring-indigo-500 font-medium"
+                  >
+                    {FIELD_OPTIONS.map((f) => (
+                      <option key={f.key} value={f.key}>
+                        {f.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <textarea
+                    value={selectedElement.staticText || ''}
+                    onChange={(e) => handleUpdateElement(selectedElement.id, { staticText: e.target.value })}
+                    placeholder="Enter custom words here..."
+                    className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-md focus:ring-1 focus:ring-indigo-500 font-medium min-h-[60px] resize-none"
+                  />
+                )}
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">Style / Type</label>
+                <div className="grid grid-cols-2 gap-1">
+                  <button
+                    onClick={() => handleUpdateElement(selectedElement.id, { elementType: 'text' })}
+                    className={`py-1.5 text-[10px] font-bold rounded-lg border transition-all ${
+                      selectedElement.elementType === 'text'
+                        ? 'bg-slate-800 text-white border-slate-800 shadow-sm'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    Standard Text
+                  </button>
+                  <button
+                    onClick={() => handleUpdateElement(selectedElement.id, { elementType: 'badge' })}
+                    className={`py-1.5 text-[10px] font-bold rounded-lg border transition-all ${
+                      selectedElement.elementType === 'badge'
+                        ? 'bg-slate-800 text-white border-slate-800 shadow-sm'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    Badge Mode (Inverted)
+                  </button>
+                </div>
               </div>
 
               {/* Coordinates */}

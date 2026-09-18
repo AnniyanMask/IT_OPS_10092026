@@ -36,7 +36,7 @@ export const DeviceOutStickerModal: React.FC<DeviceOutStickerModalProps> = ({
   const [printHistory, setPrintHistory] = useState<LabelPrintHistory[]>([]);
   const stickerPrintRef = useRef<HTMLDivElement>(null);
 
-  const isApproved = request.approvalStatus === 'Approved';
+  const isApproved = request.approvalStatus === 'Approved' || request.approvalStatus === 'In Progress';
   const isReturnedOrClosed = request.approvalStatus === 'Returned/Closed' || request.status === 'Closed' || request.status === 'Returned';
 
   useEffect(() => {
@@ -61,6 +61,261 @@ export const DeviceOutStickerModal: React.FC<DeviceOutStickerModalProps> = ({
     }
   };
 
+  const escapeHtml = (value: unknown): string =>
+    String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+
+  const buildSatoPrintHtml = (): string => {
+    const printWidthMm = template?.widthMm || 70;
+    const printHeightMm = template?.heightMm || 24;
+
+    const clamp = (value: number, min: number, max: number) =>
+      Math.max(min, Math.min(value, max));
+
+    const elements = (template?.elements || [])
+      .filter((el) => el.visible)
+      .map((el) => {
+        const safeWidth = clamp(Number(el.widthMm) || 0, 0, printWidthMm);
+        const safeHeight = clamp(Number(el.heightMm) || 0, 0, printHeightMm);
+        const safeX = clamp(Number(el.xMm) || 0, 0, Math.max(0, printWidthMm - safeWidth));
+        const safeY = clamp(Number(el.yMm) || 0, 0, Math.max(0, printHeightMm - safeHeight));
+        const rawValue = el.fieldType === 'static' ? (el.staticText || '') : getFieldValue(el.fieldKey);
+        const value = escapeHtml(rawValue);
+
+        // The editor fontSize is screen-oriented. Convert it to a practical
+        // physical size and also cap it by the element height so a 70 x 24 mm
+        // thermal label cannot blow up in Chrome/Windows print preview.
+        const requestedFontMm = (Number(el.fontSize) || 10) * 0.18;
+        const maxByHeightMm = Math.max(1.4, safeHeight * 0.68);
+        const fontMm = clamp(Math.min(requestedFontMm, maxByHeightMm), 1.4, 4.2);
+
+        const weight =
+          el.fontWeight === 'bold' ? 700 : el.fontWeight === 'medium' ? 600 : 400;
+        const align =
+          el.alignment === 'center' ? 'center' : el.alignment === 'right' ? 'right' : 'left';
+        const justify =
+          el.alignment === 'center'
+            ? 'center'
+            : el.alignment === 'right'
+            ? 'flex-end'
+            : 'flex-start';
+        const rotation = Number(el.rotation) || 0;
+
+        if (el.elementType === 'badge') {
+          return `
+            <div class="label-element badge" style="
+              left:${safeX}mm;
+              top:${safeY}mm;
+              width:${safeWidth}mm;
+              height:${safeHeight}mm;
+              font-size:${fontMm}mm;
+              font-weight:${weight};
+              text-align:${align};
+              justify-content:${justify};
+              transform:${rotation ? `rotate(${rotation}deg)` : 'none'};
+            ">${value}</div>`;
+        }
+
+        return `
+          <div class="label-element text" style="
+            left:${safeX}mm;
+            top:${safeY}mm;
+            width:${safeWidth}mm;
+            height:${safeHeight}mm;
+            font-size:${fontMm}mm;
+            font-weight:${weight};
+            text-align:${align};
+            justify-content:${justify};
+            transform:${rotation ? `rotate(${rotation}deg)` : 'none'};
+          "><span>${value}</span></div>`;
+      })
+      .join('');
+
+    const fallback = `
+      <div class="fallback">
+        <div class="fallback-title">BRING DEVICE OUT PASS</div>
+        <div class="fallback-line fallback-req">REQ NO: ${escapeHtml(request.requestId)}</div>
+        <div class="fallback-line">Requestor: ${escapeHtml(request.requesterName)} (${escapeHtml(request.departmentName || 'General')})</div>
+        <div class="fallback-line">Asset: ${escapeHtml(request.assetName || request.serviceName)}</div>
+        <div class="fallback-dates">
+          <span>From: ${escapeHtml(request.fromDate ? new Date(request.fromDate).toLocaleDateString('en-GB') : '-')}</span>
+          <span>To: ${escapeHtml(request.toDate ? new Date(request.toDate).toLocaleDateString('en-GB') : '-')}</span>
+        </div>
+        <div class="fallback-line">Approver: ${escapeHtml(request.approvedByName || 'Authorized Approver')}</div>
+      </div>`;
+
+    return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>SATO CL4NX Sticker</title>
+  <style>
+    @page {
+      size: ${printWidthMm}mm ${printHeightMm}mm;
+      margin: 0;
+    }
+
+    html, body {
+      width: ${printWidthMm}mm;
+      height: ${printHeightMm}mm;
+      min-width: ${printWidthMm}mm;
+      min-height: ${printHeightMm}mm;
+      max-width: ${printWidthMm}mm;
+      max-height: ${printHeightMm}mm;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: #fff;
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+    }
+
+    #label {
+      position: relative;
+      width: ${printWidthMm}mm;
+      height: ${printHeightMm}mm;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      border: 0.35mm solid #000;
+      background: #fff;
+      color: #000;
+      page-break-before: avoid;
+      page-break-after: avoid;
+      page-break-inside: avoid;
+      break-before: avoid;
+      break-after: avoid;
+      break-inside: avoid;
+    }
+
+    .label-element {
+      position: absolute;
+      display: flex;
+      align-items: center;
+      overflow: hidden;
+      line-height: 1;
+      white-space: nowrap;
+      transform-origin: center center;
+    }
+
+    .label-element.text span {
+      display: block;
+      width: 100%;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: clip;
+    }
+
+    .badge {
+      background: #000;
+      color: #fff;
+      align-items: center;
+      letter-spacing: 0.15mm;
+      overflow: hidden;
+    }
+
+    .fallback {
+      width: 100%;
+      height: 100%;
+      padding: 1.2mm;
+      overflow: hidden;
+      font-weight: 700;
+    }
+
+    .fallback-title {
+      height: 5mm;
+      background: #000;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 3mm;
+      line-height: 1;
+      white-space: nowrap;
+      overflow: hidden;
+    }
+
+    .fallback-line,
+    .fallback-dates {
+      height: 3.2mm;
+      display: flex;
+      align-items: center;
+      font-size: 2.2mm;
+      line-height: 1;
+      white-space: nowrap;
+      overflow: hidden;
+    }
+
+    .fallback-req { justify-content: flex-end; }
+    .fallback-dates { justify-content: space-between; }
+
+    @media print {
+      html, body, #label {
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="label">${elements || fallback}</div>
+</body>
+</html>`;
+  };
+
+  const printSatoLabel = (html: string) => {
+    const iframe = document.createElement('iframe');
+    iframe.setAttribute('aria-hidden', 'true');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '1px';
+    iframe.style.height = '1px';
+    iframe.style.border = '0';
+    iframe.style.opacity = '0';
+    iframe.style.pointerEvents = 'none';
+    document.body.appendChild(iframe);
+
+    const frameWindow = iframe.contentWindow;
+    const frameDocument = iframe.contentDocument;
+
+    if (!frameWindow || !frameDocument) {
+      iframe.remove();
+      throw new Error('Unable to create the SATO print frame.');
+    }
+
+    frameDocument.open();
+    frameDocument.write(html);
+    frameDocument.close();
+
+    const cleanup = () => {
+      window.setTimeout(() => iframe.remove(), 500);
+    };
+
+    frameWindow.addEventListener('afterprint', cleanup, { once: true });
+
+    window.setTimeout(() => {
+      frameWindow.focus();
+      frameWindow.print();
+      // Fallback cleanup for browsers that do not fire afterprint on frames.
+      window.setTimeout(() => {
+        if (document.body.contains(iframe)) iframe.remove();
+      }, 60000);
+    }, 150);
+  };
+
   const handlePrint = async () => {
     if (!isApproved) {
       setPrintError('Printing is strictly restricted to APPROVED Bring Device Out requests.');
@@ -77,12 +332,15 @@ export const DeviceOutStickerModal: React.FC<DeviceOutStickerModalProps> = ({
     setPrintSuccessMsg(null);
 
     try {
-      // 1. Record print in audit trail via API
+      // Build a completely isolated one-label document for the Windows/SATO
+      // print dialog. This avoids printing the React application itself.
+      const printHtml = buildSatoPrintHtml();
+
       const recordRes = await api.recordLabelPrint({
         requestId: request.id,
         templateId: template?.id,
         printedBy: currentUser?.id || 'admin',
-        printedByName: currentUser?.name || 'IT Staff',
+        printedByName: currentUser?.name || 'Authorized Staff',
         printerName: printerName || 'SATO CL4NX (Windows Thermal)',
         printCount: (request.printCount || 0) + 1,
       });
@@ -91,13 +349,14 @@ export const DeviceOutStickerModal: React.FC<DeviceOutStickerModalProps> = ({
         throw new Error(recordRes.error || 'Server rejected sticker print recording.');
       }
 
-      // 2. Trigger standard browser/Windows print dialog
-      window.print();
+      printSatoLabel(printHtml);
 
-      setPrintSuccessMsg('Sticker print job dispatched to Windows print spooler.');
+      setPrintSuccessMsg('SATO sticker opened in the Windows print dialog as one physical label.');
+
       if (recordRes.data) {
         setPrintHistory((prev) => [recordRes.data!, ...prev]);
       }
+
       if (onPrintSuccess) onPrintSuccess();
     } catch (err) {
       setPrintError(err instanceof Error ? err.message : 'Error executing print.');
@@ -122,7 +381,7 @@ export const DeviceOutStickerModal: React.FC<DeviceOutStickerModalProps> = ({
       case 'to_date':
         return `To: ${request.toDate ? new Date(request.toDate).toLocaleDateString('en-GB') : '-'}`;
       case 'approver_name':
-        return `Approver: ${request.approvedByName || 'IT Operations'}`;
+        return `Approver: ${request.approvedByName || 'Authorized Approver'}`;
       case 'security_footer':
         return 'TANAKA IT OPS • STICKER MUST REMAIN AFFIXED • RETURN ON DUE DATE';
       case 'custom_text':
@@ -137,39 +396,6 @@ export const DeviceOutStickerModal: React.FC<DeviceOutStickerModalProps> = ({
 
   return (
     <>
-      {/* Dedicated Print Media Stylesheet */}
-      <style>
-        {`
-          @media print {
-            body * {
-              visibility: hidden !important;
-            }
-            #sato-sticker-print-zone, #sato-sticker-print-zone * {
-              visibility: visible !important;
-            }
-            #sato-sticker-print-zone {
-              position: fixed !important;
-              left: 0 !important;
-              top: 0 !important;
-              width: ${widthMm}mm !important;
-              height: ${heightMm}mm !important;
-              margin: 0 !important;
-              padding: 2mm !important;
-              border: 2px solid #000 !important;
-              box-sizing: border-box !important;
-              background: #fff !important;
-              color: #000 !important;
-              -webkit-print-color-adjust: exact !important;
-              print-color-adjust: exact !important;
-            }
-            @page {
-              size: ${widthMm}mm ${heightMm}mm;
-              margin: 0mm;
-            }
-          }
-        `}
-      </style>
-
       {/* Modal Dialog */}
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
         <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
@@ -219,10 +445,10 @@ export const DeviceOutStickerModal: React.FC<DeviceOutStickerModalProps> = ({
             ) : (
               <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-800 flex items-center gap-2">
                 <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>
-                  <strong>Authorized for Print:</strong> Approved by <strong>{request.approvedByName || 'IT Staff'}</strong> on{' '}
+                <div>
+                  <strong>Authorized for Print:</strong> Approved by <strong>{request.approvedByName || 'Authorized Approver'}</strong> on{' '}
                   {request.approvedAt ? new Date(request.approvedAt).toLocaleString('en-GB') : 'Verified'}.
-                </span>
+                </div>
               </div>
             )}
 
@@ -293,7 +519,7 @@ export const DeviceOutStickerModal: React.FC<DeviceOutStickerModalProps> = ({
                   {template?.elements && template.elements.length > 0 ? (
                     template.elements.map((el) => {
                       if (!el.visible) return null;
-                      const val = getFieldValue(el.fieldKey);
+                      const val = el.fieldType === 'static' ? (el.staticText || '') : getFieldValue(el.fieldKey);
                       const elScale = 380 / widthMm;
                       return (
                         <div
@@ -354,7 +580,7 @@ export const DeviceOutStickerModal: React.FC<DeviceOutStickerModalProps> = ({
                           <span>To: <strong>{request.toDate ? new Date(request.toDate).toLocaleDateString('en-GB') : '-'}</strong></span>
                         </div>
                         <div className="text-[10px] truncate text-slate-800">
-                          Approved By: <strong>{request.approvedByName || 'IT Operations'}</strong>
+                          Approved By: <strong>{request.approvedByName || 'Authorized Approver'}</strong>
                         </div>
                       </div>
                       <div className="border-t border-black pt-0.5 text-[8px] font-bold text-center tracking-tight uppercase">
@@ -402,7 +628,7 @@ export const DeviceOutStickerModal: React.FC<DeviceOutStickerModalProps> = ({
                       className="text-[11px] bg-slate-50 px-3 py-1.5 rounded border border-slate-200 flex items-center justify-between text-slate-600"
                     >
                       <div>
-                        Printed by <span className="font-semibold text-slate-800">{h.printedByName || 'IT Staff'}</span> via {h.printerName || 'SATO CL4NX'}
+                        Printed by <span className="font-semibold text-slate-800">{h.printedByName || 'Authorized Staff'}</span> via {h.printerName || 'SATO CL4NX'}
                       </div>
                       <div className="font-mono text-slate-400">
                         {h.printedAt ? new Date(h.printedAt).toLocaleString('en-GB') : '-'}

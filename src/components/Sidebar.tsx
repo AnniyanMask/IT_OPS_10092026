@@ -166,7 +166,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'dev',
-      label: 'Task Board',
+      label: 'Service Queue',
       icon: Kanban,
       badge: assignedDevCount > 0 ? assignedDevCount : undefined,
       badgeColor: 'bg-emerald-500 text-white',
@@ -280,7 +280,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <span className="text-blue-500">OPS</span>
                 
               </h1>
-              <p className="text-[10px] text-slate-400 font-medium">Ver: 1.0.0</p>
+              <p className="text-[10px] text-slate-400 font-medium">Ver: 1.0.22</p>
             </div>
           </div>
 
